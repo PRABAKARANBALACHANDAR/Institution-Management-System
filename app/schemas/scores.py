@@ -24,5 +24,3 @@ class PGStudentScores(PG_BASE):
     student_id=Column(UUID(as_uuid=True),ForeignKey("dim_student.id"),nullable=False)
     lecturer_id=Column(UUID(as_uuid=True),ForeignKey("dim_faculty.id"),nullable=False)
     avg_marks=Column(REAL,nullable=True)
-    created_at=Column(TIMESTAMP,nullable=False)
-    updated_at=Column(TIMESTAMP,default=datetime.now,onupdate=datetime.now)

@@ -9,10 +9,35 @@ from fastapi.responses import JSONResponse
 from exceptions.custom_errors import IMSException
 from dotenv import load_dotenv
 
-from database import (MYSQL_BASE,PG_BASE,MYSQL_Engine,PG_Engine,
-                      MYSQL_SessionLocal,PG_SessionLocal)
+import logging
+import time
 
-import schemas
+os.environ['TZ'] = 'Asia/Kolkata'
+if hasattr(time, 'tzset'):
+    time.tzset()
+
+class FormatterIST(logging.Formatter):
+    def converter(self, timestamp):
+        return time.gmtime(timestamp + 19800)
+
+log_formatter = FormatterIST("%(asctime)s IST | %(levelname)s | %(name)s | %(message)s", datefmt="%Y-%m-%d %H:%M:%S")
+for logger_name in ("uvicorn.error", "uvicorn.access", "fastapi"):
+    logger = logging.getLogger(logger_name)
+    logger.setLevel(logging.DEBUG)
+    
+    if logger.hasHandlers():
+        logger.handlers.clear()
+        
+    ch = logging.StreamHandler()
+    ch.setFormatter(log_formatter)
+    logger.addHandler(ch)
+    logger.propagate = False
+
+airflow_db_path=os.path.expanduser('~/airflow/airflow.db').replace('\\','/')
+os.environ["AIRFLOW__DATABASE__SQL_ALCHEMY_CONN"]=f"sqlite:////{airflow_db_path}"
+
+from database import (MYSQL_BASE,PG_BASE,MYSQL_Engine,PG_Engine,MYSQL_SessionLocal,PG_SessionLocal)
+import schemas.analytics
 
 MYSQL_BASE.metadata.create_all(bind=MYSQL_Engine)
 PG_BASE.metadata.create_all(bind=PG_Engine)
@@ -31,7 +56,6 @@ app.add_middleware(
 async def ims_exception_handler(request:Request,exc:IMSException):
     return JSONResponse(status_code=exc.status_code,content={"detail":exc.detail})
 
-# Initialize admin on startup
 @app.on_event("startup")
 async def startup_event():
     try:
@@ -62,7 +86,6 @@ from routers.analytics_routes import router as analytics_router
 from routers.leave_req_route import router as leave_req_router
 from routers.scores_route import router as scores_router
 from routers.permissions_route import router as permissions_router
-from routers.enrollment_route import router as enrollment_router
 from routers.seed_data_route import router as seed_data_router
 
 app.include_router(login_router)
@@ -79,5 +102,4 @@ app.include_router(queries_router)
 app.include_router(leave_req_router)
 app.include_router(scores_router)
 app.include_router(analytics_router,tags=["Analytics"])
-app.include_router(enrollment_router)
 app.include_router(seed_data_router,tags=["Seed - Test Data Generation"])

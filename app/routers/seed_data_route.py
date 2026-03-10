@@ -13,6 +13,8 @@ from crud.faker_data_generator import (
     generate_students,
     generate_student_attendance,
     generate_faculty_attendance,
+    generate_student_scores,
+    generate_fees_and_salaries,
     seed_all_test_data,
 )
 from schemas.departments import MYSQL_Departments
@@ -28,7 +30,7 @@ router = APIRouter(prefix="/seed", tags=["Seed - Test Data Generation"])
 def seed_all(
     departments: int = Query(5, description="Number of departments (default 5)"),
     courses: int = Query(10, description="Number of courses (default 10)"),
-    principals: int = Query(2, description="Number of principals (default 2)"),
+    principals: int = Query(1, description="Number of principals (default 1)"),
     hods: int = Query(5, description="Number of HODs (default 5)"),
     lecturers: int = Query(8, description="Number of lecturers (default 8)"),
     students: int = Query(50, description="Number of students (default 50)"),
@@ -113,7 +115,7 @@ def seed_courses(
 
 @router.post("/faculty")
 def seed_faculty(
-    principals: int = Query(2, description="Number of principals (default 2)"),
+    principals: int = Query(1, description="Number of principals (default 1)"),
     hods: int = Query(5, description="Number of HODs (default 5)"),
     lecturers: int = Query(8, description="Number of lecturers (default 8)"),
     db: Session = Depends(get_db),
@@ -270,14 +272,59 @@ def seed_attendance(
         raise HTTPException(status_code=400, detail=str(e))
 
 
+@router.post("/scores")
+def seed_scores(
+    db: Session = Depends(get_db),
+    user=Depends(RequirePermission("post_principal")),
+) -> Dict[str, Any]:
+    """
+    Seed scores for all existing students.
+    """
+    try:
+        students = db.query(MYSQL_Students).all()
+        if not students:
+            raise HTTPException(status_code=400, detail="No students found to seed scores for.")
+        
+        result = generate_student_scores(db, students)
+        return {
+            "status": "success",
+            "scores": result
+        }
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.post("/financials")
+def seed_financials(
+    months_back: int = Query(3, description="Number of months back to generate records for"),
+    db: Session = Depends(get_db),
+    user=Depends(RequirePermission("post_principal")),
+) -> Dict[str, Any]:
+    """
+    Seed fees and salaries for all existing students and faculty.
+    """
+    try:
+        students = db.query(MYSQL_Students).all()
+        faculty = db.query(MYSQL_Faculty).all()
+        
+        if not students or not faculty:
+            raise HTTPException(status_code=400, detail="Ensure students and faculty are seeded first.")
+        
+        result = generate_fees_and_salaries(db, students, faculty, months_back=months_back)
+        return {
+            "status": "success",
+            "financials": result
+        }
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
 @router.get("/status")
 def seed_status(
     db: Session = Depends(get_db),
     user=Depends(RequirePermission("get_admin")),
 ) -> Dict[str, Any]:
-    """
-    ID FORMAT REFERENCE: D1001, C1001, F1001, S10001
-    """
+
     from schemas.student_attendance import MYSQLStudentAttendance
     from schemas.faculty_attendance import MYSQLFacultyAttendance
     

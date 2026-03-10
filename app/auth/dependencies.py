@@ -36,6 +36,11 @@ class RequirePermission:
     def __init__(self,permission_name:str):
         self.permission_name=permission_name
     def __call__(self,user:MYSQL_Permissions=Depends(get_current_user)):
+        # Admin bypasses all specific permission column checks
+        role_val = getattr(user.role, "value", user.role)
+        if str(role_val).lower() == "admin":
+            return user
+            
         has_perm=getattr(user,self.permission_name,0)
         if has_perm!=1:
             raise HTTPException(status_code=403,detail="Operation not permitted")

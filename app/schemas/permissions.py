@@ -17,7 +17,7 @@ class Roles(str, Enum):
 class MYSQL_Permissions(MYSQL_BASE):
     __tablename__ = "permissions"
     id=Column(String(50), primary_key=True)
-    enrollment_id=Column(String(255), ForeignKey("enrollment.id"),nullable=True)
+    enrollment_id=Column(String(255), ForeignKey("students.id"),nullable=True)
     faculty_id=Column(String(255), ForeignKey("faculty.id"),nullable=True)
     username=Column(String(50), nullable=False, unique=True)
     password=Column(String(255), nullable=False)
@@ -70,7 +70,7 @@ class MYSQL_Permissions(MYSQL_BASE):
     delete_announcements=Column(Boolean,nullable=False)
     created_at=Column(DateTime, default=datetime.now)
     updated_at=Column(DateTime, default=datetime.now, onupdate=datetime.now)
-    enrollment=relationship("MYSQL_StudentEnrollment", back_populates="permissions")
+    enrollment=relationship("MYSQL_Students", back_populates="permissions")
 
 class PermissionsResponse(BaseModel):
     model_config=ConfigDict(from_attributes=True)

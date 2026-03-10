@@ -1,24 +1,22 @@
 from sqlalchemy.orm import Session
 from schemas.student_attendance import MYSQLStudentAttendance
 from schemas.faculty_attendance import MYSQLFacultyAttendance
-from schemas.enrollment import MYSQL_LecturerStudentAssignment
 from schemas.student import MYSQL_Students
 from datetime import date
 from fastapi import HTTPException
 
 def get_students_for_attendance(db:Session,lecturer_id:str,att_date:date)->list:
     """Get list of students assigned to lecturer with their current attendance status for the date."""
-    assignments=db.query(MYSQL_LecturerStudentAssignment).filter(
-        MYSQL_LecturerStudentAssignment.lecturer_id==lecturer_id).all()
+    students=db.query(MYSQL_Students).filter(
+        MYSQL_Students.lecturer_id==lecturer_id).all()
     result=[]
-    for a in assignments:
-        student=db.query(MYSQL_Students).filter(MYSQL_Students.id==a.student_id).first()
+    for student in students:
         existing=db.query(MYSQLStudentAttendance).filter(
-            MYSQLStudentAttendance.student_id==a.student_id,
+            MYSQLStudentAttendance.student_id==student.id,
             MYSQLStudentAttendance.date==att_date
         ).first()
         result.append({
-            "student_id":a.student_id,
+            "student_id":student.id,
             "student_name":student.name if student else "Unknown",
             "is_present":existing.is_present if existing else False,
             "already_marked":existing is not None,
@@ -60,8 +58,8 @@ def mark_batch_student_attendance(db:Session,lecturer_id:str,att_date:date,rows:
     
     Returns info about created vs updated records and any validation errors.
     """
-    allowed_ids={a.student_id for a in db.query(MYSQL_LecturerStudentAssignment).filter(
-        MYSQL_LecturerStudentAssignment.lecturer_id==lecturer_id).all()}
+    allowed_ids={s.id for s in db.query(MYSQL_Students).filter(
+        MYSQL_Students.lecturer_id==lecturer_id).all()}
     
     created=[]
     updated=[]

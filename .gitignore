@@ -1,2 +1,4 @@
 *.env
 IMS_venv/
+logs/
+*__pycache__/

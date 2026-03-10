@@ -26,5 +26,4 @@ class PG_Salary(PG_BASE):
     year=Column(Integer,nullable=False)
     is_paid=Column(Boolean,default=False)
     paid_date=Column(TIMESTAMP,nullable=True)
-    created_at=Column(TIMESTAMP,default=datetime.now)
-    updated_at=Column(TIMESTAMP,default=datetime.now,onupdate=datetime.now)
+

@@ -1,16 +1,3 @@
-"""
-Comprehensive Faker Data Generator for Institution Management System
-
-Generates realistic test data for:
-- Departments
-- Courses
-- Faculty (Lecturer, HOD, Principal roles)
-- Students
-- Attendance records
-
-Respects referential integrity and role-based constraints.
-"""
-
 from faker import Faker
 from sqlalchemy.orm import Session
 from schemas.departments import MYSQL_Departments
@@ -24,13 +11,13 @@ from crud.permissions_ops import create_permissions
 from datetime import datetime, timedelta
 from typing import List, Dict, Tuple
 import random
+import random
 import string
+import json
+import uuid
+import calendar
 
 fake = Faker()
-
-# ============================================================================
-# DEPARTMENT GENERATION
-# ============================================================================
 
 def generate_department_id() -> str:
     """Generate unique department ID: D001, D002, etc."""
@@ -43,15 +30,19 @@ def generate_departments(db: Session, count: int = 5) -> List[MYSQL_Departments]
     
     Args:
         db: Database session
-        count: Number of departments to create (default 5)
-    
-    Returns:
-        List of created department objects
-        
+        count: Number of departments to create (default 5)        
     Example: ["D1001", "D1002", "D1003", ...]
     """
     departments = []
-    existing_dept_ids = {d.id for d in db.query(MYSQL_Departments).all()}
+    # Find next available ID
+    existing_depts = db.query(MYSQL_Departments).all()
+    existing_dept_ids = {d.id for d in existing_depts}
+    
+    try:
+        max_val = max([int(d.id[1:]) for d in existing_depts if d.id[1:].isdigit()])
+        counter = max_val + 1
+    except:
+        counter = 1001
     
     department_names = [
         "Engineering", "Computer Science", "Arts & Humanities",
@@ -59,31 +50,26 @@ def generate_departments(db: Session, count: int = 5) -> List[MYSQL_Departments]
         "Agriculture", "Architecture", "Management", "Education"
     ]
     
-    for i in range(count):
-        dept_id = f"D{i+1001}"
+    while len(departments) < count:
+        dept_id = f"D{counter}"
+        counter += 1
         
-        # Skip if already exists
         if dept_id in existing_dept_ids:
-            departments.append(db.query(MYSQL_Departments).filter(
-                MYSQL_Departments.id == dept_id
-            ).first())
             continue
         
         dept = MYSQL_Departments(
             id=dept_id,
-            name=department_names[i % len(department_names)],
+            name=department_names[random.randint(0, len(department_names)-1)],
             hod_name=fake.name(),  # Temporary - will be set after faculty creation
         )
         db.add(dept)
+        db.flush() # Ensure ID is available for relationships
         departments.append(dept)
+        existing_dept_ids.add(dept_id)
     
     db.commit()
     return departments
 
-
-# ============================================================================
-# COURSE GENERATION
-# ============================================================================
 
 def generate_course_id() -> str:
     """Generate unique course ID: C001, C002, etc."""
@@ -105,7 +91,15 @@ def generate_courses(db: Session, departments: List[MYSQL_Departments], count: i
     Example course IDs: ["C1001", "C1002", "C1003", ...]
     """
     courses = []
-    existing_course_ids = {c.id for c in db.query(MYSQL_Courses).all()}
+    # Find next available ID
+    all_courses = db.query(MYSQL_Courses).all()
+    existing_course_ids = {c.id for c in all_courses}
+    
+    try:
+        max_val = max([int(c.id[1:]) for c in all_courses if c.id[1:].isdigit()])
+        counter = max_val + 1
+    except:
+        counter = 1001
     
     course_names = [
         "Python Programming", "Data Science", "Web Development",
@@ -119,32 +113,27 @@ def generate_courses(db: Session, departments: List[MYSQL_Departments], count: i
         "Business Analytics", "Artificial Intelligence"
     ]
     
-    for i in range(count):
-        course_id = f"C{i+1001}"
+    while len(courses) < count:
+        course_id = f"C{counter}"
+        counter += 1
         
-        # Skip if already exists
         if course_id in existing_course_ids:
-            courses.append(db.query(MYSQL_Courses).filter(
-                MYSQL_Courses.id == course_id
-            ).first())
             continue
         
         course = MYSQL_Courses(
             id=course_id,
-            name=course_names[i % len(course_names)],
-            domain=course_domains[i % len(course_domains)],
+            name=course_names[random.randint(0, len(course_names)-1)],
+            domain=course_domains[random.randint(0, len(course_domains)-1)],
             hod_id=None,  # Will be set after faculty creation
         )
         db.add(course)
+        db.flush()
         courses.append(course)
+        existing_course_ids.add(course_id)
     
     db.commit()
     return courses
 
-
-# ============================================================================
-# FACULTY GENERATION
-# ============================================================================
 
 def generate_faculty_id() -> str:
     """Generate unique faculty ID: F001, F002, etc."""
@@ -155,7 +144,7 @@ def generate_faculty(
     db: Session,
     departments: List[MYSQL_Departments],
     courses: List[MYSQL_Courses],
-    principals_count: int = 2,
+    principals_count: int = 1,
     hods_count: int = 5,
     lecturers_count: int = 8,
 ) -> Tuple[List[MYSQL_Faculty], MYSQL_Faculty, List[MYSQL_Faculty]]:
@@ -183,12 +172,39 @@ def generate_faculty(
     lecturers = []
     all_faculty = []
     
-    existing_faculty_ids = {f.id for f in db.query(MYSQL_Faculty).all()}
-    counter = 1001
-    
     # Create Principals
-    existing_principal = db.query(MYSQL_Faculty).filter(MYSQL_Faculty.is_principal == True).first()
-    principals_to_create = 1 if not existing_principal and principals_count > 0 else 0
+    current_principals = db.query(MYSQL_Faculty).filter(MYSQL_Faculty.is_principal == True).all()
+    principals_to_create = max(0, principals_count - len(current_principals))
+    
+    # Reset counter if starting from scratch, or find max
+    all_faculty_list = db.query(MYSQL_Faculty).all()
+    existing_faculty_ids = {f.id for f in all_faculty_list}
+    
+    # Collect all existing emails and usernames to avoid duplicates
+    existing_emails = {f.email for f in all_faculty_list}
+    existing_emails.update({s.email for s in db.query(MYSQL_Students).all()})
+    
+    existing_usernames = {p.username for p in db.query(MYSQL_Permissions).all()}
+
+    try:
+        max_val = max([int(f.id[1:]) for f in all_faculty_list if f.id[1:].isdigit()])
+        counter = max_val + 1
+    except:
+        counter = 1001
+
+    def get_unique_email():
+        while True:
+            email = fake.email()
+            if email not in existing_emails:
+                existing_emails.add(email)
+                return email
+
+    def get_unique_username():
+        while True:
+            username = fake.user_name()
+            if username not in existing_usernames:
+                existing_usernames.add(username)
+                return username
     
     for i in range(principals_to_create):
         faculty_id = f"F{counter}"
@@ -201,7 +217,7 @@ def generate_faculty(
         principal = MYSQL_Faculty(
             id=faculty_id,
             name=fake.name(),
-            email=fake.unique.email(),
+            email=get_unique_email(),
             phone=fake.numerify(text="+91##########"),
             city=fake.city(),
             is_principal=True,
@@ -212,12 +228,22 @@ def generate_faculty(
             department_id=None,
         )
         db.add(principal)
+        db.flush()
         principals.append(principal)
         all_faculty.append(principal)
+        
+        create_permissions(db, {
+            "username": get_unique_username(),
+            "password": "password123",
+            "role": "principal",
+            "faculty_id": faculty_id,
+            "enrollment_id": None
+        }, auto_commit=False)
+
     
     # Create HODs (Department Heads)
     for dept in departments:
-        if len(hods) >= hods_count:
+        if len(all_faculty) - len(principals) >= hods_count: # Simplified logic to reach HOD target
             break
             
         existing_dept_hod = db.query(MYSQL_Faculty).filter(
@@ -225,6 +251,8 @@ def generate_faculty(
             MYSQL_Faculty.department_id == dept.id
         ).first()
         
+        # If we need MORE hods than depts with HODs, we can have multiple HODs in a dept or just continue
+        # For realism, skip if dept already has one, but keep searching other depts
         if existing_dept_hod:
             continue
 
@@ -238,7 +266,7 @@ def generate_faculty(
         hod = MYSQL_Faculty(
             id=faculty_id,
             name=fake.name(),
-            email=fake.unique.email(),
+            email=get_unique_email(),
             phone=fake.numerify(text="+91##########"),
             city=fake.city(),
             is_principal=False,
@@ -249,15 +277,24 @@ def generate_faculty(
             department_id=dept.id,
         )
         db.add(hod)
+        db.flush()
         hods.append(hod)
         all_faculty.append(hod)
+
+        create_permissions(db, {
+            "username": get_unique_username(),
+            "password": "password123",
+            "role": "hod",
+            "faculty_id": faculty_id,
+            "enrollment_id": None
+        }, auto_commit=False)
         
         # Update department HOD
         dept.hod_id = hod.id
         dept.hod_name = hod.name
     
     # Create Lecturers
-    for i in range(lecturers_count):
+    while len(lecturers) < lecturers_count:
         faculty_id = f"F{counter}"
         counter += 1
         
@@ -265,13 +302,16 @@ def generate_faculty(
             continue
         
         # Assign to a random course and department
-        course = random.choice(courses)
-        dept = random.choice(departments)
+        course = random.choice(courses) if courses else None
+        dept = random.choice(departments) if departments else None
         
+        if not course or not dept:
+            break
+
         lecturer = MYSQL_Faculty(
             id=faculty_id,
             name=fake.name(),
-            email=fake.unique.email(),
+            email=get_unique_email(),
             phone=fake.numerify(text="+91##########"),
             city=fake.city(),
             is_principal=False,
@@ -282,8 +322,18 @@ def generate_faculty(
             department_id=dept.id,
         )
         db.add(lecturer)
+        db.flush()
         lecturers.append(lecturer)
         all_faculty.append(lecturer)
+
+        create_permissions(db, {
+            "username": get_unique_username(),
+            "password": "password123",
+            "role": "faculty",
+            "faculty_id": faculty_id,
+            "enrollment_id": None
+        }, auto_commit=False)
+
     
     db.commit()
     
@@ -301,10 +351,6 @@ def generate_faculty(
     primary_principal = principals[0] if principals else None
     return all_faculty, primary_principal, hods
 
-
-# ============================================================================
-# STUDENT GENERATION
-# ============================================================================
 
 def generate_student_id() -> str:
     """Generate unique student ID: S001, S002, etc."""
@@ -333,12 +379,38 @@ def generate_students(
         - "S10001", "S10002", "S10003", ...
     """
     students = []
-    existing_student_ids = {s.id for s in db.query(MYSQL_Students).all()}
-    counter = 10001
+    all_students = db.query(MYSQL_Students).all()
+    existing_student_ids = {s.id for s in all_students}
+    
+    try:
+        max_val = max([int(s.id[1:]) for s in all_students if s.id[1:].isdigit()])
+        counter = max_val + 1
+    except:
+        counter = 10001
+        
+    # Collect all existing emails and usernames
+    existing_emails = {s.email for s in all_students}
+    existing_emails.update({f.email for f in db.query(MYSQL_Faculty).all()})
+    
+    existing_usernames = {p.username for p in db.query(MYSQL_Permissions).all()}
     
     cities = ["Mumbai", "Delhi", "Bangalore", "Hyderabad", "Chennai", "Pune", "Kolkata", "Ahmedabad"]
+
+    def get_unique_email():
+        while True:
+            email = fake.email()
+            if email not in existing_emails:
+                existing_emails.add(email)
+                return email
+
+    def get_unique_username():
+        while True:
+            username = fake.user_name()
+            if username not in existing_usernames:
+                existing_usernames.add(username)
+                return username
     
-    for i in range(count):
+    while len(students) < count:
         student_id = f"S{counter}"
         counter += 1
         
@@ -352,7 +424,7 @@ def generate_students(
             id=student_id,
             name=fake.name(),
             age=random.randint(18, 25),
-            email=fake.unique.email(),
+            email=get_unique_email(),
             phone=fake.numerify(text="+91##########"),
             city=random.choice(cities),
             course_id=course.id,
@@ -361,20 +433,25 @@ def generate_students(
             created_at=datetime.now() - timedelta(days=random.randint(30, 365)),
         )
         db.add(student)
+        db.flush()
         students.append(student)
+
+        create_permissions(db, {
+            "username": get_unique_username(),
+            "password": "password123",
+            "role": "student",
+            "enrollment_id": student_id,
+            "faculty_id": None
+        }, auto_commit=False)
+
     
     db.commit()
     return students
 
-
-# ============================================================================
-# ATTENDANCE GENERATION
-# ============================================================================
-
 def generate_student_attendance(
     db: Session,
     students: List[MYSQL_Students],
-    days_back: int = 30,
+    days_back: int = 1,
     attendance_percentage: float = 0.75,
 ) -> Dict[str, int]:
     """
@@ -410,6 +487,7 @@ def generate_student_attendance(
             is_present = random.random() < attendance_percentage
             
             attendance = MYSQLStudentAttendance(
+                id=f"SA{str(uuid.uuid4()).replace('-', '')[:15]}",
                 student_id=student.id,
                 date=att_date,
                 is_present=is_present,
@@ -424,7 +502,7 @@ def generate_student_attendance(
 def generate_faculty_attendance(
     db: Session,
     faculty: List[MYSQL_Faculty],
-    days_back: int = 30,
+    days_back: int = 1,
     attendance_percentage: float = 0.85,
 ) -> Dict[str, int]:
     """
@@ -460,6 +538,7 @@ def generate_faculty_attendance(
             is_present = random.random() < attendance_percentage
             
             attendance = MYSQLFacultyAttendance(
+                id=f"FA{str(uuid.uuid4()).replace('-', '')[:15]}",
                 faculty_id=fac.id,
                 date=att_date,
                 is_present=is_present,
@@ -471,19 +550,106 @@ def generate_faculty_attendance(
     return {"created": created, "skipped": skipped}
 
 
-# ============================================================================
-# COMPREHENSIVE SEEDING FUNCTION
-# ============================================================================
+def generate_student_scores(
+    db: Session,
+    students: List[MYSQL_Students],
+) -> Dict[str, int]:
+    """
+    Generate fake student scores.
+    """
+    from schemas.scores import MYSQLStudentScores
+    created = 0
+    # Use only students without scores
+    existing = {s.student_id for s in db.query(MYSQLStudentScores).all()}
+    
+    for student in students:
+        if student.id in existing:
+            continue
+        if not student.lecturer_id:
+            continue
+            
+        score = MYSQLStudentScores(
+            id=f"SC{random.randint(10000, 99999)}",
+            semester=1,
+            student_id=student.id,
+            lecturer_id=student.lecturer_id,
+            marks=json.dumps({"math": random.randint(40, 100), "science": random.randint(40, 100)})
+        )
+        db.add(score)
+        created += 1
+    
+    db.commit()
+    return {"created": created, "skipped": len(students) - created}
+
+def generate_fees_and_salaries(
+    db: Session,
+    students: List[MYSQL_Students],
+    faculty: List[MYSQL_Faculty],
+    months_back: int = 3
+) -> Dict[str, Dict[str, int]]:
+    """Generate fake fees and salaries for the past N months and mark as paid."""
+    from schemas.fees import MYSQL_Fees
+    from schemas.salary import MYSQL_Salary
+    
+    fee_created = 0
+    salary_created = 0
+    today = datetime.now()
+    
+    for i in range(months_back):
+        # Calculate target month/year
+        target_date = today - timedelta(days=30 * i)
+        month = target_date.month
+        year = target_date.year
+        
+        # Generator for Students (Fees)
+        existing_fees = {(f.student_id, f.month, f.year) for f in db.query(MYSQL_Fees).filter_by(month=month, year=year).all()}
+        for student in students:
+            if (student.id, month, year) in existing_fees:
+                continue
+            is_paid = random.random() < 0.9  # 90% chance they paid
+            db.add(MYSQL_Fees(
+                id=f"FE{str(uuid.uuid4()).replace('-', '')[:15]}",
+                student_id=student.id,
+                amount=random.randint(15000, 50000),
+                month=month,
+                year=year,
+                is_paid=is_paid,
+                paid_date=target_date if is_paid else None
+            ))
+            fee_created += 1
+
+        # Generator for Faculty (Salary)
+        existing_salary = {(s.faculty_id, s.month, s.year) for s in db.query(MYSQL_Salary).filter_by(month=month, year=year).all()}
+        for fac in faculty:
+            if (fac.id, month, year) in existing_salary:
+                continue
+            is_paid = random.random() < 0.95  # 95% paid out
+            db.add(MYSQL_Salary(
+                id=f"SA{str(uuid.uuid4()).replace('-', '')[:15]}",
+                faculty_id=fac.id,
+                amount=fac.salary if fac.salary else random.randint(40000, 150000),
+                month=month,
+                year=year,
+                is_paid=is_paid,
+                paid_date=target_date if is_paid else None
+            ))
+            salary_created += 1
+            
+    db.commit()
+    return {
+        "fees": {"created": fee_created},
+        "salaries": {"created": salary_created}
+    }
 
 def seed_all_test_data(
     db: Session,
     departments_count: int = 5,
     courses_count: int = 10,
-    principals_count: int = 2,
+    principals_count: int = 1,
     hods_count: int = 5,
     lecturers_count: int = 8,
     students_count: int = 50,
-    attendance_days: int = 30,
+    attendance_days: int = 1,
 ) -> Dict:
     """
     Comprehensive function to seed all test data respecting referential integrity.
@@ -520,7 +686,8 @@ def seed_all_test_data(
             "attendance": {
                 "students": {"created": int, "skipped": int},
                 "faculty": {"created": int, "skipped": int}
-            }
+            },
+            "scores": {"created": int, "skipped": int}
         }
     """
     try:
@@ -559,10 +726,26 @@ def seed_all_test_data(
         
         # 5. Attendance
         print("📅 Creating Attendance Records...")
-        student_att = generate_student_attendance(db, students, attendance_days)
-        faculty_att = generate_faculty_attendance(db, all_fac, attendance_days)
+        
+        # Use ALL data in DB to generate attendance and scores instead of just newly generated ones
+        all_db_students = db.query(MYSQL_Students).all()
+        all_db_faculty = db.query(MYSQL_Faculty).all()
+        
+        student_att = generate_student_attendance(db, all_db_students, attendance_days)
+        faculty_att = generate_faculty_attendance(db, all_db_faculty, attendance_days)
         print(f"   ✓ Student Attendance: {student_att['created']} created, {student_att['skipped']} skipped")
         print(f"   ✓ Faculty Attendance: {faculty_att['created']} created, {faculty_att['skipped']} skipped")
+        
+        # 6. Scores
+        print("📊 Creating Scores Records...")
+        scores_res = generate_student_scores(db, all_db_students)
+        print(f"   ✓ Scores: {scores_res['created']} created, {scores_res['skipped']} skipped")
+        
+        # 7. Fees & Salary
+        print("💰 Creating Financial Records...")
+        fin_res = generate_fees_and_salaries(db, all_db_students, all_db_faculty, months_back=3)
+        print(f"   ✓ Fees: {fin_res['fees']['created']} created")
+        print(f"   ✓ Salaries: {fin_res['salaries']['created']} created")
         
         print("✅ Test Data Seeding Completed Successfully!\n")
         
@@ -589,6 +772,8 @@ def seed_all_test_data(
                 "students": student_att,
                 "faculty": faculty_att,
             },
+            "scores": scores_res,
+            "financials": fin_res,
             "status": "success"
         }
         

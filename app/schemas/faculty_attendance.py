@@ -21,5 +21,3 @@ class PGFacultyAttendance(PG_BASE):
     faculty_id=Column(UUID(as_uuid=True),ForeignKey("dim_faculty.id"),nullable=False)
     date=Column(Date,nullable=False)
     is_present=Column(Boolean,nullable=False)
-    created_at=Column(TIMESTAMP,default=datetime.now)
-    updated_at=Column(TIMESTAMP,default=datetime.now,onupdate=datetime.now)

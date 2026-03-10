@@ -13,7 +13,6 @@ class MYSQL_Departments(MYSQL_BASE):
     hod_name=Column(String(50),nullable=False)
     faculty=relationship("MYSQL_Faculty",back_populates="department",foreign_keys="[MYSQL_Faculty.department_id]")
     hod=relationship("MYSQL_Faculty",foreign_keys=[hod_id])
-    assignments=relationship("MYSQL_FacultyAssignment",back_populates="department")
     created_at=Column(DateTime,default=datetime.now)
     updated_at=Column(DateTime,default=datetime.now,onupdate=datetime.now)
 
@@ -24,5 +23,3 @@ class PG_Departments(PG_BASE):
     name=Column(String(50),nullable=False)
     hod_id=Column(UUID(as_uuid=True),ForeignKey("dim_faculty.id"))
     hod_name=Column(String(100),nullable=False)
-    created_at=Column(TIMESTAMP,default=datetime.now)
-    updated_at=Column(TIMESTAMP,default=datetime.now,onupdate=datetime.now)

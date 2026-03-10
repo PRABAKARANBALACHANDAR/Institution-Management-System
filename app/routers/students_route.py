@@ -48,7 +48,13 @@ def create_student(
     email = email or fake.unique.email()
     phone = phone or fake.numerify(text="+91##########")
     city = city or fake.city()
-    course_id = course_id or f"C{fake.random_int(min=1000, max=9999)}"
+    
+    if not course_id:
+        random_teacher = db.query(MYSQL_Faculty).filter(MYSQL_Faculty.is_lecturer == True).first()
+        if random_teacher:
+            course_id = random_teacher.course_id
+            lecturer_id = lecturer_id or random_teacher.id
+            
     year = year or fake.random_int(min=1, max=4)
     username = username or fake.user_name()
     password = password or fake.password()

@@ -20,7 +20,6 @@ PERMISSION_BOOL_FIELDS = [
     "delete_announcements",
 ]
 
-# Role-based permission mappings
 ROLE_PERMISSIONS = {
     Roles.ADMIN: {
         # All CREATE permissions

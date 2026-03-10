@@ -93,3 +93,40 @@ def faculty_performance_analysis(db_pg: Session = None, filters: dict = None):
         })
     
     return result
+
+def get_institution_growth(db_pg: Session = None):
+    """
+    Calculate institution growth rate based on student enrollment across academic years.
+    Returns count of students per year.
+    """
+    if db_pg is None:
+        db_pg = get_pg_db()
+    
+    # Aggregate students by Admission Year (created_at)
+    year_col = func.extract('year', PG_Students.created_at)
+    counts = db_pg.query(
+        year_col.label('year'), 
+        func.count(PG_Students.id)
+    ).group_by(year_col).order_by('year').all()
+    
+    # Format as: {"2024": 50, "2025": 75}
+    growth_data = {str(int(y)): count for y, count in counts if y is not None}
+    
+    # Add revenue growth trend (past 3 months)
+    revenue_trend = []
+    now = datetime.datetime.now()
+    for i in range(3):
+        target_date = now - datetime.timedelta(days=30*i)
+        m, y = target_date.month, target_date.year
+        
+        fees = db_pg.query(func.sum(PG_Fees.amount)).filter(
+            PG_Fees.month == m, PG_Fees.year == y, PG_Fees.is_paid == True
+        ).scalar() or 0.0
+        
+        revenue_trend.append({"month": m, "year": y, "revenue": float(fees)})
+    
+    return {
+        "total_students": sum(growth_data.values()),
+        "student_distribution": growth_data,
+        "revenue_trend": revenue_trend[::-1] # chronological
+    }

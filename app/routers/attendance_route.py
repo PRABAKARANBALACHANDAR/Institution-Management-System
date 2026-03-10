@@ -3,7 +3,7 @@ from sqlalchemy.orm import Session
 from database import get_db
 from auth.dependencies import RequirePermission,get_current_user
 from schemas.permissions import MYSQL_Permissions
-from schemas.enrollment import MYSQL_LecturerStudentAssignment
+from schemas.student import MYSQL_Students
 from pydantic import BaseModel
 from typing import List
 from datetime import date
@@ -65,9 +65,9 @@ def get_student_att(
     
     # Faculty can only see students assigned to them
     if user.role=="faculty":
-        is_assigned = db.query(MYSQL_LecturerStudentAssignment).filter(
-            MYSQL_LecturerStudentAssignment.student_id == student_id,
-            MYSQL_LecturerStudentAssignment.lecturer_id == user.faculty_id
+        is_assigned = db.query(MYSQL_Students).filter(
+            MYSQL_Students.id == student_id,
+            MYSQL_Students.lecturer_id == user.faculty_id
         ).first()
         if not is_assigned:
             raise HTTPException(status_code=403, detail="You can only view attendance of students assigned to you")

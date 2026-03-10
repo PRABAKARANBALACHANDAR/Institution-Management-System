@@ -13,8 +13,6 @@ class MYSQL_Courses(MYSQL_BASE):
     faculty=relationship("MYSQL_Faculty",back_populates="course",foreign_keys="[MYSQL_Faculty.course_id]")
     hod=relationship("MYSQL_Faculty",foreign_keys=[hod_id])
     students=relationship("MYSQL_Students",back_populates="course")
-    assignments=relationship("MYSQL_FacultyAssignment",back_populates="course")
-    enrollments=relationship("MYSQL_StudentEnrollment",back_populates="course")
     created_at=Column(DateTime, default=datetime.now)
     updated_at=Column(DateTime, default=datetime.now, onupdate=datetime.now)
     
@@ -24,5 +22,3 @@ class PG_Courses(PG_BASE):
     name=Column(String(50), nullable=False)
     domain=Column(String(50), nullable=False)
     hod_id=Column(UUID(as_uuid=True), ForeignKey("dim_faculty.id"),nullable=True)
-    created_at=Column(TIMESTAMP, default=datetime.now)
-    updated_at=Column(TIMESTAMP, default=datetime.now, onupdate=datetime.now)

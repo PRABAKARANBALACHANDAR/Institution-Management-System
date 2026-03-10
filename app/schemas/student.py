@@ -19,11 +19,11 @@ class MYSQL_Students(MYSQL_BASE):
     updated_at=Column(DateTime,default=datetime.now,onupdate=datetime.now)
     course=relationship("MYSQL_Courses",back_populates="students")
     lecturer=relationship("MYSQL_Faculty",back_populates="assigned_students")
-    enrollments=relationship("MYSQL_StudentEnrollment",back_populates="student")
     attendance=relationship("MYSQLStudentAttendance",back_populates="student")
     fees=relationship("MYSQL_Fees", back_populates="student")
     scores=relationship("MYSQLStudentScores", back_populates="student")
     leave_requests=relationship("MYSQL_Leave_Req", primaryjoin="and_(MYSQL_Leave_Req.role=='student', foreign(MYSQL_Leave_Req.role_id)==MYSQL_Students.id)")
+    permissions=relationship("MYSQL_Permissions", back_populates="enrollment")
     
 
 class PG_Students(PG_BASE):
@@ -38,4 +38,3 @@ class PG_Students(PG_BASE):
     lecturer_id=Column(UUID(as_uuid=True),ForeignKey("dim_faculty.id"),nullable=True)
     year=Column(Integer,nullable=False)
     created_at=Column(TIMESTAMP,default=datetime.now)
-    updated_at=Column(TIMESTAMP,default=datetime.now,onupdate=datetime.now)

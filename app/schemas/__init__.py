@@ -1,13 +1,7 @@
 from .announcements import MYSQL_Announcements
 from .course import MYSQL_Courses, PG_Courses
 from .departments import MYSQL_Departments, PG_Departments
-from .enrollment import (
-    MYSQL_StudentEnrollment,
-    MYSQL_FacultyAssignment,
-    MYSQL_LecturerStudentAssignment,
-    PG_FactStudentEnrollment,
-    PG_FactFacultyAssignment,
-)
+
 from .faculty import MYSQL_Faculty, PG_Faculty
 from .faculty_attendance import MYSQLFacultyAttendance, PGFacultyAttendance
 from .fees import MYSQL_Fees, PG_Fees

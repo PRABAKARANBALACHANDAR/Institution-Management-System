@@ -10,7 +10,7 @@ class TeacherPerformanceResponse(BaseModel):
     course:Optional[str]=None
     total_classes:int
     attended_classes:int
-    attendance_pct:float
+    attendance_percentage:float
     avg_student_score:Optional[float]=None
     performance_score:Optional[float]=None
     month:int

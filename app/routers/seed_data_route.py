@@ -1,7 +1,3 @@
-"""
-    ID FORMAT REFERENCE: D1001, C1001, F1001, S10001
-    """
-
 from fastapi import APIRouter, Depends, HTTPException, Query
 from sqlalchemy.orm import Session
 from database import get_db

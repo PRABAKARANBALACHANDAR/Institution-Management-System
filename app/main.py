@@ -33,7 +33,7 @@ for logger_name in ("uvicorn.error", "uvicorn.access", "fastapi"):
     logger.addHandler(ch)
     logger.propagate = False
 
-airflow_db_path=os.path.expanduser('~/airflow/airflow.db').replace('\\','/')
+airflow_db_path=os.path.join(os.path.dirname(_APP_DIR), 'airflow', 'airflow.db').replace('\\','/')
 os.environ["AIRFLOW__DATABASE__SQL_ALCHEMY_CONN"]=f"sqlite:////{airflow_db_path}"
 
 from database import (MYSQL_BASE,PG_BASE,MYSQL_Engine,PG_Engine,MYSQL_SessionLocal,PG_SessionLocal)
@@ -103,3 +103,6 @@ app.include_router(leave_req_router)
 app.include_router(scores_router)
 app.include_router(analytics_router,tags=["Analytics"])
 app.include_router(seed_data_router,tags=["Seed - Test Data Generation"])
+
+# Export database sessions and engines for Airflow DAG access
+__all__ = ["app", "MYSQL_SessionLocal", "PG_SessionLocal", "MYSQL_Engine", "PG_Engine", "MYSQL_BASE", "PG_BASE"]

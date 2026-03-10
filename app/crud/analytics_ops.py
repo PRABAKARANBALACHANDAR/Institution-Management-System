@@ -75,7 +75,6 @@ def faculty_performance_analysis(db_pg: Session = None, filters: dict = None):
     
     filters = filters or {}
     
-    # Get all faculty with their average student marks
     faculties = db_pg.query(PG_Faculty).all()
     
     result = []

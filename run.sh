@@ -17,12 +17,18 @@ fi
 mkdir -p logs
 
 export TZ="Asia/Kolkata"
+export AIRFLOW_HOME="$(pwd)/airflow"
 
 export AIRFLOW__CORE__DEFAULT_TIMEZONE="Asia/Kolkata"
 export AIRFLOW__LOGGING__COLORED_CONSOLE_LOG="False"
+export AIRFLOW__CORE__DAGS_ARE_PAUSED_AT_CREATION="False"
 
 echo "Starting servers..."
 airflow api-server 2>&1 | python3 log_filter.py > logs/airflow_api-server.log & 
+sleep 5
+
+echo "Starting Airflow DAG Processor..."
+airflow dag-processor 2>&1 | python3 log_filter.py > logs/airflow_dag-processor.log &
 sleep 5
 
 echo "Starting Airflow Scheduler..."

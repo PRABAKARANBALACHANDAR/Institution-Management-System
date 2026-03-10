@@ -2,3 +2,9 @@
 IMS_venv/
 logs/
 *__pycache__/
+airflow/logs/
+*.cfg
+*.db
+*.db-shm
+*.db-wal
+*.generated

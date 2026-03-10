@@ -14,13 +14,6 @@ fake = Faker()
 
 router = APIRouter(tags=["Students"])
 
-# =============================================================================
-# ID FORMAT REFERENCE FOR STUDENTS ENDPOINTS
-# =============================================================================
-"""
-    ID FORMAT REFERENCE: D1001, C1001, F1001, S10001
-    """
-
 @router.post("/students")
 def create_student(
     # Student details

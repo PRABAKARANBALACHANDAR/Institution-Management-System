@@ -6,13 +6,6 @@ from crud.department_ops import create_department_db,get_all_departments_db,get_
 from pydantic import BaseModel
 router=APIRouter(tags=["Departments"])
 
-# =============================================================================
-# ID FORMAT REFERENCE FOR DEPARTMENT ENDPOINTS
-# =============================================================================
-"""
-    ID FORMAT REFERENCE: D1001, C1001, F1001, S10001
-    """
-
 from faker import Faker
 from pydantic import Field
 import random

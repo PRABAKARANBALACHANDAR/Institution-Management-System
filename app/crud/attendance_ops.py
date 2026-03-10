@@ -6,7 +6,6 @@ from datetime import date
 from fastapi import HTTPException
 
 def get_students_for_attendance(db:Session,lecturer_id:str,att_date:date)->list:
-    """Get list of students assigned to lecturer with their current attendance status for the date."""
     students=db.query(MYSQL_Students).filter(
         MYSQL_Students.lecturer_id==lecturer_id).all()
     result=[]
@@ -25,21 +24,6 @@ def get_students_for_attendance(db:Session,lecturer_id:str,att_date:date)->list:
     return result
 
 def validate_attendance_date_not_marked(db:Session, student_id:str, att_date:date, allow_update:bool=False)->bool:
-    """
-    Validate that attendance for a date hasn't already been marked.
-    
-    Args:
-        db: Database session
-        student_id: Student ID
-        att_date: Date to check
-        allow_update: If False, raise error if already marked. If True, allow updates.
-        
-    Returns:
-        True if validation passes
-        
-    Raises:
-        HTTPException if already marked and allow_update=False
-    """
     existing=db.query(MYSQLStudentAttendance).filter(
         MYSQLStudentAttendance.student_id==student_id,
         MYSQLStudentAttendance.date==att_date
@@ -53,11 +37,6 @@ def validate_attendance_date_not_marked(db:Session, student_id:str, att_date:dat
     return True
 
 def mark_batch_student_attendance(db:Session,lecturer_id:str,att_date:date,rows:list)->dict:
-    """
-    Mark student attendance in batch.
-    
-    Returns info about created vs updated records and any validation errors.
-    """
     allowed_ids={s.id for s in db.query(MYSQL_Students).filter(
         MYSQL_Students.lecturer_id==lecturer_id).all()}
     
@@ -114,9 +93,6 @@ def mark_batch_student_attendance(db:Session,lecturer_id:str,att_date:date,rows:
     }
 
 def mark_faculty_attendance(db:Session,faculty_id:str,att_date:date,is_present:bool)->dict:
-    """
-    Mark faculty attendance. Returns whether record was created or updated.
-    """
     existing=db.query(MYSQLFacultyAttendance).filter(
         MYSQLFacultyAttendance.faculty_id==faculty_id,
         MYSQLFacultyAttendance.date==att_date
@@ -151,9 +127,7 @@ def mark_faculty_attendance(db:Session,faculty_id:str,att_date:date,is_present:b
         }
 
 def get_student_attendance(db:Session,student_id:str):
-    """Get all attendance records for a student."""
     return db.query(MYSQLStudentAttendance).filter(MYSQLStudentAttendance.student_id==student_id).all()
 
 def get_faculty_attendance(db:Session,faculty_id:str):
-    """Get all attendance records for faculty."""
     return db.query(MYSQLFacultyAttendance).filter(MYSQLFacultyAttendance.faculty_id==faculty_id).all()

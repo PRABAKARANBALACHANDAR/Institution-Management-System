@@ -10,7 +10,6 @@ from fastapi import HTTPException
 
 def sync_student_attendance_to_pg(mysql_db: Session, pg_db: Session, att_date: date = None) -> dict:
     
-    # If att_date is None, sync ALL records (great for historical catch-up after faker runs)
     query = mysql_db.query(MYSQLStudentAttendance)
     if att_date is not None:
         query = query.filter(MYSQLStudentAttendance.date == att_date)
@@ -20,11 +19,9 @@ def sync_student_attendance_to_pg(mysql_db: Session, pg_db: Session, att_date: d
     if not mysql_records:
         return {"status": "no_records", "date": str(att_date) if att_date else "ALL", "synced": 0}
     
-    # Bulk maps to prevent N+1 queries
     all_students = mysql_db.query(MYSQL_Students).all()
     student_uuid_map = {s.id: uuid5(NAMESPACE_DNS, s.id) for s in all_students}
     
-    # Get existing PG records in bulk to prevent N+1 lookups
     pg_query = pg_db.query(PGStudentAttendance.student_id, PGStudentAttendance.date)
     if att_date is not None:
         pg_query = pg_query.filter(PGStudentAttendance.date == att_date)
@@ -44,7 +41,6 @@ def sync_student_attendance_to_pg(mysql_db: Session, pg_db: Session, att_date: d
         key = (str(pg_student_id), att.date)
         
         if key in existing_pg_keys:
-            # We skip full updates in bulk mode to keep it fast
             skipped_count += 1
         else:
             new_records.append(PGStudentAttendance(
@@ -125,21 +121,6 @@ def sync_faculty_attendance_to_pg(mysql_db: Session, pg_db: Session, att_date: d
 
 
 def validate_attendance_not_marked(db: Session, entity_id: str, entity_type: str, att_date: date) -> bool:
-    """
-    Validate that attendance for a specific date hasn't already been marked.
-    
-    Args:
-        db: Database session
-        entity_id: Student or Faculty ID
-        entity_type: 'student' or 'faculty'
-        att_date: Date to check
-        
-    Returns:
-        True if attendance NOT already marked, False if already exists
-        
-    Raises:
-        HTTPException if attendance already exists
-    """
     if entity_type == "student":
         existing = db.query(MYSQLStudentAttendance).filter(
             MYSQLStudentAttendance.student_id == entity_id,

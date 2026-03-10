@@ -11,13 +11,6 @@ from typing import Optional
 
 router=APIRouter(tags=["Courses"])
 
-# =============================================================================
-# ID FORMAT REFERENCE FOR COURSE ENDPOINTS
-# =============================================================================
-"""
-    ID FORMAT REFERENCE: D1001, C1001, F1001, S10001
-    """
-
 class CourseCreate(BaseModel):
     name: str = Field(default_factory=lambda: fake.catch_phrase()[:20])
     domain: str = Field(default_factory=lambda: fake.job()[:20])

@@ -40,11 +40,9 @@ def create_faculty_db(
         if existing_dept_hod:
             raise HTTPException(status_code=400, detail="Only 1 HOD is allowed for each department.")
     
-    # Set course_id to None for principal/HOD (they don't teach specific courses)
     if is_principal or is_hod:
         faculty_data["course_id"] = None
     
-    # Set department_id to None for lecturer (lecturer is teaching, not managing dept)
     if is_lecturer:
         faculty_data["department_id"] = None
     

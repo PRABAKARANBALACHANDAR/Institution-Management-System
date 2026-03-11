@@ -4,7 +4,7 @@ from database import get_db
 from auth.dependencies import RequirePermission
 from crud.faculty_ops import create_faculty_db
 from crud.faculty_ops import get_all_faculty_db, get_faculty_db, update_faculty_db, delete_faculty_db
-from crud.permissions_ops import create_permissions
+from crud.permissions_ops import create_permissions, generate_random_password
 from typing import Optional
 from faker import Faker
 import random
@@ -41,7 +41,7 @@ def create_faculty(
     city = city or fake.city()
     salary = salary or fake.random_int(min=40000, max=150000)
     username = username or fake.user_name()
-    password = password or fake.password()
+    password = password or generate_random_password()
     faculty_data = {
         "name": name,
         "email": email,

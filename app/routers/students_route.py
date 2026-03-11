@@ -3,7 +3,7 @@ from sqlalchemy.orm import Session
 from database import get_db
 from auth.dependencies import RequirePermission, get_current_user
 from crud.student_ops import create_student_db, get_all_students_db, get_student_db, update_student_db, delete_student_db
-from crud.permissions_ops import create_permissions
+from crud.permissions_ops import create_permissions, generate_random_password
 from schemas.permissions import MYSQL_Permissions
 from schemas.student import MYSQL_Students
 from schemas.faculty import MYSQL_Faculty
@@ -34,8 +34,6 @@ def create_student(
     """
     ID FORMAT REFERENCE: D1001, C1001, F1001, S10001
     """
-
-
     name = name or fake.name()
     age = age or fake.random_int(min=18, max=25)
     email = email or fake.unique.email()
@@ -50,7 +48,7 @@ def create_student(
             
     year = year or fake.random_int(min=1, max=4)
     username = username or fake.user_name()
-    password = password or fake.password()
+    password = password or generate_random_password()
     
     student_data = {
         "name": name,

@@ -88,7 +88,7 @@ def faculty_performance_analysis(db_pg: Session = None, filters: dict = None):
             "faculty_id": str(faculty.id),
             "faculty_name": faculty.name,
             "avg_student_marks": float(avg_student_marks),
-            "performance_score": float(avg_student_marks),  # Can be enhanced with attendance factor
+            "performance_score": float(avg_student_marks),
         })
     
     return result
@@ -108,7 +108,6 @@ def get_institution_growth(db_pg: Session = None):
         func.count(PG_Students.id)
     ).group_by(year_col).order_by('year').all()
     
-    # Format as: {"2024": 50, "2025": 75}
     growth_data = {str(int(y)): count for y, count in counts if y is not None}
     
     # Add revenue growth trend (past 3 months)
@@ -127,5 +126,5 @@ def get_institution_growth(db_pg: Session = None):
     return {
         "total_students": sum(growth_data.values()),
         "student_distribution": growth_data,
-        "revenue_trend": revenue_trend[::-1] # chronological
+        "revenue_trend": revenue_trend[::-1]
     }

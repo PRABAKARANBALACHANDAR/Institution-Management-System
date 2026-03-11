@@ -3,8 +3,11 @@ from schemas.permissions import MYSQL_Permissions,Roles
 from crud.utils import generate_custom_id
 from passlib.context import CryptContext
 from fastapi import HTTPException
+import secrets
+import string
 
 pwd_ctx=CryptContext(schemes=["bcrypt"],deprecated="auto")
+PASSWORD_ALPHABET = string.ascii_letters + string.digits + "!@#$%^&*"
 
 PERMISSION_BOOL_FIELDS = [
     "post_principal", "post_student", "post_faculty", "post_course", "post_dept",
@@ -138,6 +141,20 @@ def hash_password(plain:str)->str:
 
 def verify_password(plain:str,hashed:str)->bool:
     return pwd_ctx.verify(plain,hashed)
+
+def generate_random_password(length: int = 12) -> str:
+    if length < 8:
+        raise ValueError("Password length must be at least 8 characters")
+
+    while True:
+        password = "".join(secrets.choice(PASSWORD_ALPHABET) for _ in range(length))
+        if (
+            any(ch.islower() for ch in password)
+            and any(ch.isupper() for ch in password)
+            and any(ch.isdigit() for ch in password)
+            and any(ch in "!@#$%^&*" for ch in password)
+        ):
+            return password
 
 def get_permissions_by_role(role: Roles) -> dict:
     return ROLE_PERMISSIONS.get(role, {field: False for field in PERMISSION_BOOL_FIELDS})

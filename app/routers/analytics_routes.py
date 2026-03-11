@@ -12,7 +12,6 @@ from pydantic import BaseModel
 from typing import Optional
 from crud.analytics_ops import revenue_analysis, student_performance_analysis, faculty_performance_analysis, get_institution_growth
 
-# Set Seaborn theme for premium look
 sns.set_theme(style="whitegrid", palette="muted")
 plt.rcParams['font.sans-serif'] = ['Inter', 'Roboto', 'DejaVu Sans', 'sans-serif']
 
@@ -53,7 +52,7 @@ def view_analytics_dashboard(
     ax_rev = axes[0, 0]
     rev_labels = ['Fees', 'Salary', 'Net']
     rev_vals = [revenue["total_fees_collected"], revenue["total_salary_paid"], revenue["net_revenue"]]
-    sns.barplot(x=rev_labels, y=rev_vals, ax=ax_rev, palette=['#10b981', '#ef4444', '#3b82f6'], hue=rev_labels, legend=False)
+    sns.barplot(x=rev_labels, y=rev_vals, ax=ax_rev, palette=['#10b981', '#ef4444', "#f6e03b"], hue=rev_labels, legend=False)
     ax_rev.set_title('Monthly Financial Overview', fontsize=14, fontweight='semibold', pad=15)
     ax_rev.set_ylabel('Amount ($)', fontsize=12)
     

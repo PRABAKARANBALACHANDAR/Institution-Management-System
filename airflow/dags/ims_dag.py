@@ -24,26 +24,24 @@ def log_etl(msg: str):
     with open(log_path, "a") as f:
         f.write(f"[{now} IST] [IMS_DAG_ETL] {msg}\n")
 
-# Airflow imports
 from airflow import DAG
 from airflow.operators.python import PythonOperator
 from airflow.operators.empty import EmptyOperator
 
-# Database imports directly from database module (avoids schema import conflicts)
 from database import MYSQL_SessionLocal, PG_SessionLocal
 
 # DAG configuration
 default_args = {
     "owner": "prabhu",
     "retries": 2,
-    "retry_delay": timedelta(minutes=2),
+    "retry_delay": timedelta(hours=1),
 }
 
 dag = DAG(
-    dag_id="ims_daily_pipeline_v1",
+    dag_id="ims_daily_pipeline_v2",
     default_args=default_args,
     description="IMS: MySQL OLTP → PostgreSQL OLAP + daily analytics",
-    schedule=timedelta(minutes=10),
+    schedule="@daily",
     start_date=pendulum.datetime(2026, 3, 6, tz="Asia/Kolkata"),
     catchup=False,
     max_active_runs=1,
@@ -60,129 +58,103 @@ def _safe_close(*sessions):
             pass
 
 
-def etl_students(**kwargs):
-    """ETL: Sync students from MySQL to PostgreSQL"""
+def stage_golden_source(**kwargs):
+    """Extract new or changed OLTP rows into transient MySQL golden tables."""
     from dotenv import load_dotenv
     load_dotenv(IMS_ENV_PATH)
-    from schemas.student import MYSQL_Students, PG_Students
-    from uuid import uuid5, NAMESPACE_DNS
-    
+    from crud.golden_source_ops import extract_incremental_to_golden
+
+    mysql_db = MYSQL_SessionLocal()
+    try:
+        result = extract_incremental_to_golden(mysql_db)
+        log_etl(f"[stage_golden_source] Extracted incremental golden rows: {result['counts']}")
+        return result
+    except Exception as e:
+        log_etl(f"[stage_golden_source] Error: {e}")
+        raise
+    finally:
+        _safe_close(mysql_db)
+
+
+def create_golden_snapshot(**kwargs):
+    """Persist the transient MySQL golden copy as a snapshot batch."""
+    from dotenv import load_dotenv
+    load_dotenv(IMS_ENV_PATH)
+    from crud.golden_source_ops import create_snapshot_batch
+
+    mysql_db = MYSQL_SessionLocal()
+    try:
+        result = create_snapshot_batch(mysql_db)
+        log_etl(f"[create_golden_snapshot] Created batch {result['batch_id']} with counts {result['counts']}")
+        return result
+    except Exception as e:
+        log_etl(f"[create_golden_snapshot] Error: {e}")
+        raise
+    finally:
+        _safe_close(mysql_db)
+
+def etl_dimensions(**kwargs):
+    """Load PostgreSQL dimensions from one MySQL snapshot batch."""
+    from dotenv import load_dotenv
+    load_dotenv(IMS_ENV_PATH)
+    from crud.golden_source_ops import load_dimensions_from_snapshot
+
+    ti = kwargs["ti"]
+    batch_info = ti.xcom_pull(task_ids="create_golden_snapshot")
+    batch_id = batch_info["batch_id"]
+
     mysql_db = MYSQL_SessionLocal()
     pg_db = PG_SessionLocal()
     try:
-        students = mysql_db.query(MYSQL_Students).all()
-        for s in students:
-            pg_id = uuid5(NAMESPACE_DNS, s.id)
-            existing = pg_db.query(PG_Students).filter(PG_Students.id == pg_id).first()
-            if existing:
-                existing.name = s.name
-                existing.age = getattr(s, "age", None)
-                existing.email = s.email
-                existing.phone = s.phone
-                existing.city = s.city
-                existing.year = s.year
-                existing.created_at = s.created_at
-            else:
-                record = PG_Students(
-                    id=pg_id, name=s.name, age=getattr(s, "age", None),
-                    email=s.email, phone=s.phone, city=s.city,
-                    course_id=None, year=s.year,
-                    created_at=s.created_at
-                )
-                pg_db.add(record)
-        pg_db.commit()
-        log_etl(f"[etl_students] Synced {len(students)} students")
+        synced = load_dimensions_from_snapshot(mysql_db, pg_db, batch_id)
+        log_etl(f"[etl_dimensions] Batch {batch_id}: {synced}")
     except Exception as e:
-        log_etl(f"[etl_students] Error: {e}")
+        log_etl(f"[etl_dimensions] Error: {e}")
         raise
     finally:
         _safe_close(mysql_db, pg_db)
 
-def etl_faculty(**kwargs):
-    """ETL: Sync faculty from MySQL to PostgreSQL"""
+def etl_facts(**kwargs):
+    """Load PostgreSQL facts from one MySQL snapshot batch."""
     from dotenv import load_dotenv
     load_dotenv(IMS_ENV_PATH)
-    from schemas.faculty import MYSQL_Faculty, PG_Faculty
-    from uuid import uuid5, NAMESPACE_DNS
-    
+    from crud.golden_source_ops import load_facts_from_snapshot
+
+    ti = kwargs["ti"]
+    batch_info = ti.xcom_pull(task_ids="create_golden_snapshot")
+    batch_id = batch_info["batch_id"]
+
     mysql_db = MYSQL_SessionLocal()
     pg_db = PG_SessionLocal()
     try:
-        faculty_list = mysql_db.query(MYSQL_Faculty).all()
-        for f in faculty_list:
-            pg_id = uuid5(NAMESPACE_DNS, f.id)
-            existing = pg_db.query(PG_Faculty).filter(PG_Faculty.id == pg_id).first()
-            if existing:
-                existing.name = f.name
-                existing.salary = f.salary
-                existing.is_lecturer = f.is_lecturer
-                existing.is_hod = f.is_hod
-                existing.is_principal = f.is_principal
-            else:
-                record = PG_Faculty(
-                    id=pg_id, name=f.name, email=f.email, phone=f.phone,
-                    city=f.city, salary=f.salary, is_lecturer=f.is_lecturer,
-                    is_hod=f.is_hod, is_principal=f.is_principal,
-                    department_id=None, course_id=None
-                )
-                pg_db.add(record)
-        pg_db.commit()
-        log_etl(f"[etl_faculty] Synced {len(faculty_list)} faculty")
+        synced = load_facts_from_snapshot(mysql_db, pg_db, batch_id)
+        log_etl(f"[etl_facts] Batch {batch_id}: {synced}")
     except Exception as e:
-        log_etl(f"[etl_faculty] Error: {e}")
+        log_etl(f"[etl_facts] Error: {e}")
         raise
     finally:
         _safe_close(mysql_db, pg_db)
 
-def etl_courses(**kwargs):
-    """ETL: Sync courses from MySQL to PostgreSQL"""
+def finalize_golden_batch(**kwargs):
+    """Advance watermarks and clear transient MySQL golden tables after success."""
     from dotenv import load_dotenv
     load_dotenv(IMS_ENV_PATH)
-    from schemas.course import MYSQL_Courses, PG_Courses
-    from uuid import uuid5, NAMESPACE_DNS
-    
-    mysql_db = MYSQL_SessionLocal()
-    pg_db = PG_SessionLocal()
-    try:
-        courses = mysql_db.query(MYSQL_Courses).all()
-        for c in courses:
-            pg_id = uuid5(NAMESPACE_DNS, c.id)
-            existing = pg_db.query(PG_Courses).filter(PG_Courses.id == pg_id).first()
-            if not existing:
-                record = PG_Courses(id=pg_id, name=c.name, domain=c.domain, hod_id=None)
-                pg_db.add(record)
-        pg_db.commit()
-        log_etl(f"[etl_courses] Synced {len(courses)} courses")
-    except Exception as e:
-        log_etl(f"[etl_courses] Error: {e}")
-        raise
-    finally:
-        _safe_close(mysql_db, pg_db)
+    from crud.golden_source_ops import finalize_batch
 
-def etl_departments(**kwargs):
-    """ETL: Sync departments from MySQL to PostgreSQL"""
-    from dotenv import load_dotenv
-    load_dotenv(IMS_ENV_PATH)
-    from schemas.departments import MYSQL_Departments, PG_Departments
-    from uuid import uuid5, NAMESPACE_DNS
-    
+    ti = kwargs["ti"]
+    extraction_result = ti.xcom_pull(task_ids="stage_golden_source")
+    batch_info = ti.xcom_pull(task_ids="create_golden_snapshot")
+    batch_id = batch_info["batch_id"]
+
     mysql_db = MYSQL_SessionLocal()
-    pg_db = PG_SessionLocal()
     try:
-        depts = mysql_db.query(MYSQL_Departments).all()
-        for d in depts:
-            pg_id = uuid5(NAMESPACE_DNS, d.id)
-            existing = pg_db.query(PG_Departments).filter(PG_Departments.id == pg_id).first()
-            if not existing:
-                record = PG_Departments(id=pg_id, name=d.name, hod_name=d.hod_name)
-                pg_db.add(record)
-        pg_db.commit()
-        log_etl(f"[etl_departments] Synced {len(depts)} departments")
+        result = finalize_batch(mysql_db, batch_id, extraction_result)
+        log_etl(f"[finalize_golden_batch] Finalized batch {result['batch_id']} with status {result['status']}")
     except Exception as e:
-        log_etl(f"[etl_departments] Error: {e}")
+        log_etl(f"[finalize_golden_batch] Error: {e}")
         raise
     finally:
-        _safe_close(mysql_db, pg_db)
+        _safe_close(mysql_db)
 
 def generate_faker_data(**kwargs):
     """Generate daily fake attendance data"""
@@ -205,60 +177,6 @@ def generate_faker_data(**kwargs):
     finally:
         _safe_close(mysql_db)
 
-def etl_scores(**kwargs):
-    """ETL: Sync student scores from MySQL to PostgreSQL"""
-    from dotenv import load_dotenv
-    load_dotenv(IMS_ENV_PATH)
-    from schemas.scores import MYSQLStudentScores, PGStudentScores
-    from uuid import uuid5, NAMESPACE_DNS
-    import json
-    
-    mysql_db = MYSQL_SessionLocal()
-    pg_db = PG_SessionLocal()
-    try:
-        scores = mysql_db.query(MYSQLStudentScores).all()
-        for s in scores:
-            pg_id = uuid5(NAMESPACE_DNS, s.id)
-            student_uuid = uuid5(NAMESPACE_DNS, s.student_id)
-            lecturer_uuid = uuid5(NAMESPACE_DNS, s.lecturer_id)
-            existing = pg_db.query(PGStudentScores).filter(PGStudentScores.id == pg_id).first()
-            if not existing:
-                marks_dict = s.marks if isinstance(s.marks, dict) else json.loads(s.marks) if s.marks else {}
-                avg = sum(marks_dict.values()) / len(marks_dict) if marks_dict else None
-                record = PGStudentScores(
-                    id=pg_id,
-                    semester=s.semester,
-                    student_id=student_uuid,
-                    lecturer_id=lecturer_uuid,
-                    avg_marks=avg
-                )
-                pg_db.add(record)
-        pg_db.commit()
-        log_etl(f"[etl_scores] Synced {len(scores)} scores")
-    except Exception as e:
-        log_etl(f"[etl_scores] Error: {e}")
-        raise
-    finally:
-        _safe_close(mysql_db, pg_db)
-
-def sync_attendance(**kwargs):
-    """Sync student and faculty attendance to PostgreSQL"""
-    from dotenv import load_dotenv
-    load_dotenv(IMS_ENV_PATH)
-    from crud.attendance_etl_ops import sync_student_attendance_to_pg, sync_faculty_attendance_to_pg
-    
-    mysql_db = MYSQL_SessionLocal()
-    pg_db = PG_SessionLocal()
-    try:
-        student_result = sync_student_attendance_to_pg(mysql_db, pg_db, None)
-        faculty_result = sync_faculty_attendance_to_pg(mysql_db, pg_db, None)
-        log_etl(f"[sync_attendance] Students: {student_result}, Faculty: {faculty_result}")
-    except Exception as e:
-        log_etl(f"[sync_attendance] Error: {e}")
-        raise
-    finally:
-        _safe_close(mysql_db, pg_db)
-
 def generate_salary(**kwargs):
     """Generate monthly salary records (runs on 1st of month only)"""
     from dotenv import load_dotenv
@@ -279,77 +197,6 @@ def generate_salary(**kwargs):
         raise
     finally:
         _safe_close(mysql_db)
-
-def etl_revenue(**kwargs):
-    """ETL: Sync fees and salary (revenue) from MySQL to PostgreSQL"""
-    from dotenv import load_dotenv
-    load_dotenv(IMS_ENV_PATH)
-    from schemas.fees import MYSQL_Fees, PG_Fees
-    from schemas.salary import MYSQL_Salary, PG_Salary
-    from uuid import uuid5, NAMESPACE_DNS
-    from sqlalchemy import text
-    
-    mysql_db = MYSQL_SessionLocal()
-    pg_db = PG_SessionLocal()
-    
-    try:
-        # 1. Sync Fees
-        fees = mysql_db.query(MYSQL_Fees).all()
-        for f in fees:
-            pg_id = uuid5(NAMESPACE_DNS, f.id)
-            student_pg_id = uuid5(NAMESPACE_DNS, f.student_id)
-            
-            existing = pg_db.query(PG_Fees).filter(PG_Fees.id == pg_id).first()
-            if existing:
-                existing.amount = float(f.amount)
-                existing.month = f.month
-                existing.year = f.year
-                existing.is_paid = f.is_paid
-                existing.paid_date = f.paid_date
-            else:
-                record = PG_Fees(
-                    id=pg_id,
-                    student_id=student_pg_id,
-                    amount=float(f.amount),
-                    month=f.month,
-                    year=f.year,
-                    is_paid=f.is_paid,
-                    paid_date=f.paid_date
-                )
-                pg_db.add(record)
-        
-        # 2. Sync Salary
-        salaries = mysql_db.query(MYSQL_Salary).all()
-        for s in salaries:
-            pg_id = uuid5(NAMESPACE_DNS, s.id)
-            faculty_pg_id = uuid5(NAMESPACE_DNS, s.faculty_id)
-            
-            existing = pg_db.query(PG_Salary).filter(PG_Salary.id == pg_id).first()
-            if existing:
-                existing.amount = float(s.amount)
-                existing.month = s.month
-                existing.year = s.year
-                existing.is_paid = s.is_paid
-                existing.paid_date = s.paid_date
-            else:
-                record = PG_Salary(
-                    id=pg_id,
-                    faculty_id=faculty_pg_id,
-                    amount=float(s.amount),
-                    month=s.month,
-                    year=s.year,
-                    is_paid=s.is_paid,
-                    paid_date=s.paid_date
-                )
-                pg_db.add(record)
-        
-        pg_db.commit()
-        log_etl(f"[etl_revenue] Synced {len(fees)} fees, {len(salaries)} salaries")
-    except Exception as e:
-        log_etl(f"[etl_revenue] Error: {e}")
-        raise
-    finally:
-        _safe_close(mysql_db, pg_db)
 
 def calc_teacher_performance(**kwargs):
     """Calculate teacher performance metrics"""
@@ -405,36 +252,24 @@ def calc_teacher_performance(**kwargs):
 start = EmptyOperator(task_id="start", dag=dag)
 end = EmptyOperator(task_id="end", dag=dag)
 
-t_students = PythonOperator(task_id="etl_students", python_callable=etl_students, dag=dag)
-t_faculty = PythonOperator(task_id="etl_faculty", python_callable=etl_faculty, dag=dag)
-t_courses = PythonOperator(task_id="etl_courses", python_callable=etl_courses, dag=dag)
-t_depts = PythonOperator(task_id="etl_departments", python_callable=etl_departments, dag=dag)
+t_stage_golden = PythonOperator(task_id="stage_golden_source", python_callable=stage_golden_source, dag=dag)
+t_snapshot = PythonOperator(task_id="create_golden_snapshot", python_callable=create_golden_snapshot, dag=dag)
+t_dimensions = PythonOperator(task_id="etl_dimensions", python_callable=etl_dimensions, dag=dag)
+t_facts = PythonOperator(task_id="etl_facts", python_callable=etl_facts, dag=dag)
 t_gen_data = PythonOperator(task_id="gen_daily_attendance", python_callable=generate_faker_data, dag=dag)
-t_scores = PythonOperator(task_id="etl_scores", python_callable=etl_scores, dag=dag)
-t_sync_att = PythonOperator(task_id="sync_attendance", python_callable=sync_attendance, dag=dag)
 t_salary = PythonOperator(task_id="generate_salary", python_callable=generate_salary, dag=dag)
-t_revenue = PythonOperator(task_id="etl_revenue", python_callable=etl_revenue, dag=dag)
 t_performance = PythonOperator(task_id="teacher_performance", python_callable=calc_teacher_performance, dag=dag)
+t_finalize = PythonOperator(task_id="finalize_golden_batch", python_callable=finalize_golden_batch, dag=dag)
 
 # ========== TASK DEPENDENCIES ==========
 
-# Parallel dim ETL first + generation tasks
-start >> [t_students, t_faculty, t_courses, t_depts, t_gen_data]
+# Generate fresh operational-side data first, then snapshot it into golden staging.
+start >> [t_gen_data, t_salary]
+[t_gen_data, t_salary] >> t_stage_golden
 
-# Scores mapping requires students and faculty
-[t_students, t_faculty] >> t_scores
-
-# Attendance sync requires fake generation to run first
-[t_gen_data, t_students, t_faculty] >> t_sync_att
-
-# Salary generation depends on faculty list
-t_faculty >> t_salary
-
-# Revenue ETL after salary generated
-t_salary >> t_revenue
-
-# Performance calc after attendance sync and scores ETL
-[t_sync_att, t_scores] >> t_performance
-
-# End after everything
-[t_revenue, t_performance, t_courses, t_depts] >> end
+t_stage_golden >> t_snapshot
+t_snapshot >> t_dimensions
+t_dimensions >> t_facts
+t_facts >> t_performance
+t_performance >> t_finalize
+t_finalize >> end

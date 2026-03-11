@@ -37,6 +37,7 @@ airflow_db_path=os.path.join(os.path.dirname(_APP_DIR), 'airflow', 'airflow.db')
 os.environ["AIRFLOW__DATABASE__SQL_ALCHEMY_CONN"]=f"sqlite:////{airflow_db_path}"
 
 from database import (MYSQL_BASE,PG_BASE,MYSQL_Engine,PG_Engine,MYSQL_SessionLocal,PG_SessionLocal)
+import schemas
 import schemas.analytics
 
 MYSQL_BASE.metadata.create_all(bind=MYSQL_Engine)

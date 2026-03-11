@@ -7,7 +7,7 @@ from schemas.student import MYSQL_Students
 from schemas.student_attendance import MYSQLStudentAttendance
 from schemas.faculty_attendance import MYSQLFacultyAttendance
 from schemas.permissions import MYSQL_Permissions
-from crud.permissions_ops import create_permissions
+from crud.permissions_ops import create_permissions, generate_random_password
 from datetime import datetime, timedelta
 from typing import List, Dict, Tuple
 import random
@@ -115,7 +115,7 @@ def generate_courses(db: Session, departments: List[MYSQL_Departments], count: i
             id=course_id,
             name=course_names[random.randint(0, len(course_names)-1)],
             domain=course_domains[random.randint(0, len(course_domains)-1)],
-            hod_id=None,  # Will be set after faculty creation
+            hod_id=None,
         )
         db.add(course)
         db.flush()
@@ -207,7 +207,7 @@ def generate_faculty(
         
         create_permissions(db, {
             "username": get_unique_username(),
-            "password": "password123",
+            "password": generate_random_password(),
             "role": "principal",
             "faculty_id": faculty_id,
             "enrollment_id": None
@@ -254,7 +254,7 @@ def generate_faculty(
 
         create_permissions(db, {
             "username": get_unique_username(),
-            "password": "password123",
+            "password": generate_random_password(),
             "role": "hod",
             "faculty_id": faculty_id,
             "enrollment_id": None
@@ -299,7 +299,7 @@ def generate_faculty(
 
         create_permissions(db, {
             "username": get_unique_username(),
-            "password": "password123",
+            "password": generate_random_password(),
             "role": "faculty",
             "faculty_id": faculty_id,
             "enrollment_id": None
@@ -397,7 +397,7 @@ def generate_students(
 
         create_permissions(db, {
             "username": get_unique_username(),
-            "password": "password123",
+            "password": generate_random_password(),
             "role": "student",
             "enrollment_id": student_id,
             "faculty_id": None

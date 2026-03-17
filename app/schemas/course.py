@@ -21,4 +21,4 @@ class PG_Courses(PG_BASE):
     id=Column(UUID(as_uuid=True), primary_key=True)
     name=Column(String(50), nullable=False)
     domain=Column(String(50), nullable=False)
-    hod_id=Column(UUID(as_uuid=True), ForeignKey("dim_faculty.id"),nullable=True)
+    hod_id=Column(UUID(as_uuid=True), ForeignKey("fact_faculty.id"),nullable=True)

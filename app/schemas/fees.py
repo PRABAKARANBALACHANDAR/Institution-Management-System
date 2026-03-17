@@ -18,12 +18,11 @@ class MYSQL_Fees(MYSQL_BASE):
     student=relationship("MYSQL_Students",back_populates="fees")
 
 class PG_Fees(PG_BASE):
-    __tablename__="fact_fees"
+    __tablename__="dim_fees"
     id=Column(UUID(as_uuid=True),primary_key=True)
-    student_id=Column(UUID(as_uuid=True),ForeignKey("dim_student.id"))
+    student_id=Column(UUID(as_uuid=True),ForeignKey("fact_student.id"))
     amount=Column(REAL,nullable=False)
     month=Column(Integer,nullable=False)
     year=Column(Integer,nullable=False)
     is_paid=Column(Boolean,default=False)
     paid_date=Column(Date,nullable=True)
-

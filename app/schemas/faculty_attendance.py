@@ -16,8 +16,8 @@ class MYSQLFacultyAttendance(MYSQL_BASE):
     faculty=relationship("MYSQL_Faculty",back_populates="attendance")
 
 class PGFacultyAttendance(PG_BASE):
-    __tablename__="dim_faculty_attendance"
+    __tablename__="fact_faculty_attendance"
     id=Column(UUID(as_uuid=True),primary_key=True)
-    faculty_id=Column(UUID(as_uuid=True),ForeignKey("dim_faculty.id"),nullable=False)
+    faculty_id=Column(UUID(as_uuid=True),ForeignKey("fact_faculty.id"),nullable=False)
     date=Column(Date,nullable=False)
     is_present=Column(Boolean,nullable=False)

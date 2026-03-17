@@ -1,11 +1,19 @@
-from fastapi import APIRouter,Depends,HTTPException
+from typing import Annotated, Any, List
+
+from fastapi import APIRouter, Depends, File, Form, HTTPException, UploadFile
 from sqlalchemy.orm import Session
 from database import get_db
-from auth.dependencies import RequirePermission,get_current_user
+from auth.dependencies import RequirePermission
 from schemas.permissions import MYSQL_Permissions
 from pydantic import BaseModel
-from typing import List,Any,Optional
-from crud.scores_ops import create_score,get_student_scores,update_score, calculate_avg_marks
+
+from crud.scores_ops import (
+    calculate_avg_marks,
+    create_score,
+    get_student_scores,
+    import_scores_from_csv,
+    update_score,
+)
 
 router=APIRouter(tags=["Scores / Marks"],prefix="/scores")
 
@@ -24,6 +32,24 @@ class ScoreResponse(BaseModel):
     marks:Any
     class Config:
         from_attributes=True
+
+
+class ScoreImportResponse(BaseModel):
+    filename: str
+    created: int
+    skipped: int
+    failed: int
+    processed_rows: int
+    subject_columns: List[str]
+    errors: List[str]
+
+
+class ScoreImportBatchResponse(BaseModel):
+    created: int
+    skipped: int
+    failed: int
+    processed_rows: int
+    files: List[ScoreImportResponse]
 
 @router.post("/",response_model=ScoreResponse)
 def post_score(
@@ -69,3 +95,77 @@ def put_score(
     # Recalculate average marks for performance metrics
     calculate_avg_marks(db, student_id, semester)
     return score
+
+
+@router.post("/upload", response_model=ScoreImportBatchResponse)
+async def upload_scores_csv(
+    files: Annotated[List[UploadFile], File(...)],
+    semester: Annotated[int | None, Form()] = None,
+    lecturer_id: Annotated[str | None, Form()] = None,
+    db: Session = Depends(get_db),
+    user: MYSQL_Permissions = Depends(RequirePermission("post_marks")),
+):
+    """
+    Upload one or more CSV files with columns like:
+    student_id,math,science
+    or student_id,semester,math,science
+    Existing student+semester score rows are skipped.
+    """
+    if not files:
+        raise HTTPException(status_code=400, detail="At least one CSV file is required.")
+
+    batch_results: List[ScoreImportResponse] = []
+    total_created = 0
+    total_skipped = 0
+    total_failed = 0
+
+    for file in files:
+        filename = file.filename or "uploaded.csv"
+        if not filename.lower().endswith(".csv"):
+            batch_results.append(
+                ScoreImportResponse(
+                    filename=filename,
+                    created=0,
+                    skipped=0,
+                    failed=1,
+                    processed_rows=1,
+                    subject_columns=[],
+                    errors=["Only CSV files are supported."],
+                )
+            )
+            total_failed += 1
+            continue
+
+        try:
+            csv_content = (await file.read()).decode("utf-8-sig")
+            result = import_scores_from_csv(
+                db,
+                csv_content,
+                lecturer_id=lecturer_id or user.faculty_id,
+                default_semester=semester,
+            )
+            file_result = ScoreImportResponse(filename=filename, **result)
+        except HTTPException as exc:
+            detail = exc.detail if isinstance(exc.detail, str) else str(exc.detail)
+            file_result = ScoreImportResponse(
+                filename=filename,
+                created=0,
+                skipped=0,
+                failed=1,
+                processed_rows=1,
+                subject_columns=[],
+                errors=[detail],
+            )
+
+        batch_results.append(file_result)
+        total_created += file_result.created
+        total_skipped += file_result.skipped
+        total_failed += file_result.failed
+
+    return ScoreImportBatchResponse(
+        created=total_created,
+        skipped=total_skipped,
+        failed=total_failed,
+        processed_rows=total_created + total_skipped + total_failed,
+        files=batch_results,
+    )

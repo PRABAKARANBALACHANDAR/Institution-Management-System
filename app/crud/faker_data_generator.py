@@ -8,6 +8,7 @@ from schemas.student_attendance import MYSQLStudentAttendance
 from schemas.faculty_attendance import MYSQLFacultyAttendance
 from schemas.permissions import MYSQL_Permissions
 from crud.permissions_ops import create_permissions, generate_random_password
+from crud.scores_ops import generate_score_csv_files
 from datetime import datetime, timedelta
 from typing import List, Dict, Tuple
 import random
@@ -490,33 +491,12 @@ def generate_faculty_attendance(
 def generate_student_scores(
     db: Session,
     students: List[MYSQL_Students],
-) -> Dict[str, int]:
+    max_semester: int = 8,
+) -> Dict[str, object]:
     """
-    Generate fake student scores.
+    Generate semester-wise score CSV files for later upload.
     """
-    from schemas.scores import MYSQLStudentScores
-    created = 0
-    # Use only students without scores
-    existing = {s.student_id for s in db.query(MYSQLStudentScores).all()}
-    
-    for student in students:
-        if student.id in existing:
-            continue
-        if not student.lecturer_id:
-            continue
-            
-        score = MYSQLStudentScores(
-            id=f"SC{random.randint(10000, 99999)}",
-            semester=1,
-            student_id=student.id,
-            lecturer_id=student.lecturer_id,
-            marks=json.dumps({"math": random.randint(40, 100), "science": random.randint(40, 100)})
-        )
-        db.add(score)
-        created += 1
-    
-    db.commit()
-    return {"created": created, "skipped": len(students) - created}
+    return generate_score_csv_files(db, students, max_semester=max_semester)
 
 def generate_fees_and_salaries(
     db: Session,
@@ -635,9 +615,9 @@ def seed_all_test_data(
         print(f"   ✓ Faculty Attendance: {faculty_att['created']} created, {faculty_att['skipped']} skipped")
         
         # 6. Scores
-        print("Creating Scores Records...")
+        print("Creating Score CSV Files...")
         scores_res = generate_student_scores(db, all_db_students)
-        print(f"   ✓ Scores: {scores_res['created']} created, {scores_res['skipped']} skipped")
+        print(f"   ✓ Score CSVs: {len(scores_res['generated_files'])} files, {scores_res['rows_written']} rows")
         
         # 7. Fees & Salary
         print("Creating Financial Records...")

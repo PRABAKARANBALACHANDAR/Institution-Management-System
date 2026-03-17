@@ -189,7 +189,7 @@ def create_snapshot_batch(mysql_db: Session) -> dict:
 
 
 def load_dimensions_from_snapshot(mysql_db: Session, pg_db: Session, batch_id: str) -> dict:
-    synced = {"departments": 0, "courses": 0, "faculty": 0, "students": 0}
+    synced = {"departments": 0, "courses": 0}
 
     departments = mysql_db.query(MYSQL_Gold_Snapshot_Departments).filter(MYSQL_Gold_Snapshot_Departments.batch_id == batch_id).all()
     for row in departments:
@@ -215,7 +215,20 @@ def load_dimensions_from_snapshot(mysql_db: Session, pg_db: Session, batch_id: s
             pg_db.add(PG_Courses(id=pg_id, name=row.name, domain=row.domain, hod_id=None))
         synced["courses"] += 1
 
-    pg_db.flush()
+    pg_db.commit()
+    return synced
+
+
+def load_facts_from_snapshot(mysql_db: Session, pg_db: Session, batch_id: str) -> dict:
+    synced = {
+        "faculty": 0,
+        "students": 0,
+        "student_attendance": 0,
+        "faculty_attendance": 0,
+        "scores": 0,
+        "fees": 0,
+        "salary": 0,
+    }
 
     faculty_rows = mysql_db.query(MYSQL_Gold_Snapshot_Faculty).filter(MYSQL_Gold_Snapshot_Faculty.batch_id == batch_id).all()
     for row in faculty_rows:
@@ -240,15 +253,16 @@ def load_dimensions_from_snapshot(mysql_db: Session, pg_db: Session, batch_id: s
             pg_db.add(PG_Faculty(id=pg_id, **payload))
         synced["faculty"] += 1
 
-    # Flush faculty before backfilling HOD references on courses/departments.
     pg_db.flush()
 
+    departments = mysql_db.query(MYSQL_Gold_Snapshot_Departments).filter(MYSQL_Gold_Snapshot_Departments.batch_id == batch_id).all()
     for row in departments:
         pg_id = uuid5(NAMESPACE_DNS, row.source_id)
         existing = pg_db.query(PG_Departments).filter(PG_Departments.id == pg_id).first()
         if existing:
             existing.hod_id = uuid5(NAMESPACE_DNS, row.hod_id) if row.hod_id else None
 
+    courses = mysql_db.query(MYSQL_Gold_Snapshot_Courses).filter(MYSQL_Gold_Snapshot_Courses.batch_id == batch_id).all()
     for row in courses:
         pg_id = uuid5(NAMESPACE_DNS, row.source_id)
         existing = pg_db.query(PG_Courses).filter(PG_Courses.id == pg_id).first()
@@ -277,12 +291,7 @@ def load_dimensions_from_snapshot(mysql_db: Session, pg_db: Session, batch_id: s
             pg_db.add(PG_Students(id=pg_id, **payload))
         synced["students"] += 1
 
-    pg_db.commit()
-    return synced
-
-
-def load_facts_from_snapshot(mysql_db: Session, pg_db: Session, batch_id: str) -> dict:
-    synced = {"student_attendance": 0, "faculty_attendance": 0, "scores": 0, "fees": 0, "salary": 0}
+    pg_db.flush()
 
     student_att_rows = mysql_db.query(MYSQL_Gold_Snapshot_StudentAttendance).filter(MYSQL_Gold_Snapshot_StudentAttendance.batch_id == batch_id).all()
     for row in student_att_rows:

@@ -18,8 +18,8 @@ class MYSQLStudentAttendance(MYSQL_BASE):
     marked_by_faculty=relationship("MYSQL_Faculty",foreign_keys="[MYSQLStudentAttendance.marked_by]")
 
 class PGStudentAttendance(PG_BASE):
-    __tablename__="dim_student_attendance"
+    __tablename__="fact_student_attendance"
     id=Column(UUID(as_uuid=True),primary_key=True)
-    student_id=Column(UUID(as_uuid=True),ForeignKey("dim_student.id"),nullable=False)
+    student_id=Column(UUID(as_uuid=True),ForeignKey("fact_student.id"),nullable=False)
     date=Column(Date,nullable=False)
     is_present=Column(Boolean,nullable=False)

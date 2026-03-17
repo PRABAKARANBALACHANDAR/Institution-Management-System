@@ -7,8 +7,7 @@ from schemas.student import MYSQL_Students
 from pydantic import BaseModel
 from typing import List
 from datetime import date
-from crud.attendance_ops import (get_students_for_attendance,mark_batch_student_attendance,
-                                  mark_faculty_attendance,get_student_attendance,get_faculty_attendance)
+from crud.attendance_ops import get_students_for_attendance,mark_batch_student_attendance,mark_faculty_attendance,get_student_attendance,get_faculty_attendance
 
 router=APIRouter()
 

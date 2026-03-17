@@ -270,21 +270,22 @@ def seed_attendance(
 
 @router.post("/scores")
 def seed_scores(
+    max_semester: int = Query(8, description="Generate score CSV files from semester 1 to this semester"),
     db: Session = Depends(get_db),
     user=Depends(RequirePermission("post_principal")),
 ) -> Dict[str, Any]:
     """
-    Seed scores for all existing students.
+    Generate semester-wise score CSV files for all existing students.
     """
     try:
         students = db.query(MYSQL_Students).all()
         if not students:
-            raise HTTPException(status_code=400, detail="No students found to seed scores for.")
+            raise HTTPException(status_code=400, detail="No students found to generate score CSV files for.")
         
-        result = generate_student_scores(db, students)
+        result = generate_student_scores(db, students, max_semester=max_semester)
         return {
             "status": "success",
-            "scores": result
+            "score_csv_files": result
         }
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))

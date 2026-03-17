@@ -27,7 +27,7 @@ class MYSQL_Students(MYSQL_BASE):
     
 
 class PG_Students(PG_BASE):
-    __tablename__="dim_student"
+    __tablename__="fact_student"
     id=Column(UUID(as_uuid=True),primary_key=True)
     name=Column(String(100),nullable=False)
     age=Column(Integer,nullable=True)
@@ -35,6 +35,6 @@ class PG_Students(PG_BASE):
     phone=Column(String(20),nullable=False,unique=True)
     city=Column(String(100),nullable=False)
     course_id=Column(UUID(as_uuid=True),ForeignKey("dim_course.id"))
-    lecturer_id=Column(UUID(as_uuid=True),ForeignKey("dim_faculty.id"),nullable=True)
+    lecturer_id=Column(UUID(as_uuid=True),ForeignKey("fact_faculty.id"),nullable=True)
     year=Column(Integer,nullable=False)
     created_at=Column(TIMESTAMP,default=datetime.now)

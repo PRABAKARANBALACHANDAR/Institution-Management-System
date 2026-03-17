@@ -20,10 +20,9 @@ class MYSQL_Salary(MYSQL_BASE):
 class PG_Salary(PG_BASE):
     __tablename__="dim_salary"
     id=Column(UUID(as_uuid=True),primary_key=True)
-    faculty_id=Column(UUID(as_uuid=True),ForeignKey("dim_faculty.id"),nullable=False)
+    faculty_id=Column(UUID(as_uuid=True),ForeignKey("fact_faculty.id"),nullable=False)
     amount=Column(REAL,nullable=False)
     month=Column(Integer,nullable=False)
     year=Column(Integer,nullable=False)
     is_paid=Column(Boolean,default=False)
     paid_date=Column(TIMESTAMP,nullable=True)
-

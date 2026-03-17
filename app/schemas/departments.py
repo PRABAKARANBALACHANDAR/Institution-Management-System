@@ -21,5 +21,5 @@ class PG_Departments(PG_BASE):
     __tablename__="dim_department"
     id=Column(UUID(as_uuid=True),primary_key=True)
     name=Column(String(50),nullable=False)
-    hod_id=Column(UUID(as_uuid=True),ForeignKey("dim_faculty.id"))
+    hod_id=Column(UUID(as_uuid=True),ForeignKey("fact_faculty.id"))
     hod_name=Column(String(100),nullable=False)

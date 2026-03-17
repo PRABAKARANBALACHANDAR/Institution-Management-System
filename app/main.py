@@ -45,6 +45,11 @@ PG_BASE.metadata.create_all(bind=PG_Engine)
 
 app=FastAPI(title="Institution Management System")
 
+
+@app.get("/health/")
+async def health_check():
+    return {"status": "ok"}
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],

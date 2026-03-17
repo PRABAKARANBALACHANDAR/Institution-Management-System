@@ -18,9 +18,9 @@ class MYSQLStudentScores(MYSQL_BASE):
     lecturer=relationship("MYSQL_Faculty",foreign_keys=[lecturer_id])
 
 class PGStudentScores(PG_BASE):
-    __tablename__="fact_student_scores"
+    __tablename__="dim_student_scores"
     id=Column(UUID(as_uuid=True),primary_key=True)
     semester=Column(Integer,nullable=False)
-    student_id=Column(UUID(as_uuid=True),ForeignKey("dim_student.id"),nullable=False)
-    lecturer_id=Column(UUID(as_uuid=True),ForeignKey("dim_faculty.id"),nullable=False)
+    student_id=Column(UUID(as_uuid=True),ForeignKey("fact_student.id"),nullable=False)
+    lecturer_id=Column(UUID(as_uuid=True),ForeignKey("fact_faculty.id"),nullable=False)
     avg_marks=Column(REAL,nullable=True)

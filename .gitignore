@@ -8,3 +8,4 @@ airflow/logs/
 *.db-shm
 *.db-wal
 *.generated
+generated/

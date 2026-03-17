@@ -27,7 +27,7 @@ class MYSQL_Faculty(MYSQL_BASE):
     updated_at=Column(DateTime,default=datetime.now,onupdate=datetime.now)    
 
 class PG_Faculty(PG_BASE):
-    __tablename__="dim_faculty"
+    __tablename__="fact_faculty"
     id=Column(UUID(as_uuid=True),primary_key=True)
     name=Column(String(50),nullable=False)
     email=Column(String(50),nullable=False,unique=True)

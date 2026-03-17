@@ -1,21 +1,175 @@
-from fastapi import APIRouter, Depends, HTTPException, Query
-from fastapi.responses import StreamingResponse
+from fastapi import APIRouter, Depends, Query, WebSocket, WebSocketDisconnect, status
+from fastapi.responses import StreamingResponse, HTMLResponse
+import asyncio
+import hashlib
 import io
+from html import escape
+import json
 import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
 import seaborn as sns
+import os
+import jwt
 from sqlalchemy.orm import Session
-from database import get_db, PG_SessionLocal, get_pg_db
+from database import MYSQL_SessionLocal, PG_SessionLocal, get_pg_db
 from auth.dependencies import RequirePermission
 from pydantic import BaseModel
 from typing import Optional
 from crud.analytics_ops import revenue_analysis, student_performance_analysis, faculty_performance_analysis, get_institution_growth
+from schemas.permissions import MYSQL_Permissions
 
 sns.set_theme(style="whitegrid", palette="muted")
 plt.rcParams['font.sans-serif'] = ['Inter', 'Roboto', 'DejaVu Sans', 'sans-serif']
 
 router=APIRouter(tags=["Analytics"], prefix="/analytics")
+
+SECRET_KEY = os.getenv("SECRET_KEY")
+ALGORITHM = os.getenv("ALGORITHM")
+
+def _render_dashboard_content(revenue: dict, faculty_perf: list[dict], student_perf: list[dict], growth: dict) -> str:
+    faculty_items = "".join(
+        f"<li>{escape(item.get('faculty_name', 'Unknown'))} - {float(item.get('performance_score', 0)):.2f}</li>"
+        for item in faculty_perf[:5]
+    ) or "<li>No faculty analytics available</li>"
+
+    student_items = "".join(
+        f"<li>{escape(item.get('student_name', 'Unknown'))} - {float(item.get('avg_marks', 0)):.2f}</li>"
+        for item in student_perf[:5]
+    ) or "<li>No student analytics available</li>"
+
+    growth_items = "".join(
+        f"<li>{escape(str(year))}: {count}</li>"
+        for year, count in growth.get("student_distribution", {}).items()
+    ) or "<li>No growth data available</li>"
+
+    return f"""
+    <p>Month: {revenue["month"]}/{revenue["year"]}</p>
+
+    <h2>Revenue</h2>
+    <p>Fees Collected: {revenue["total_fees_collected"]}</p>
+    <p>Salary Paid: {revenue["total_salary_paid"]}</p>
+    <p>Net Revenue: {revenue["net_revenue"]}</p>
+
+    <h2>Top Faculty</h2>
+    <ul>{faculty_items}</ul>
+
+    <h2>Top Students</h2>
+    <ul>{student_items}</ul>
+
+    <h2>Growth</h2>
+    <p>Total Students: {growth.get("total_students", 0)}</p>
+    <ul>{growth_items}</ul>
+"""
+
+def _render_simple_dashboard_html(revenue: dict, faculty_perf: list[dict], student_perf: list[dict], growth: dict) -> str:
+    content_html = _render_dashboard_content(revenue, faculty_perf, student_perf, growth)
+    return f"""
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Analytics Dashboard</title>
+</head>
+<body>
+    <h1>Analytics Dashboard</h1>
+    <p id="dashboard-status">Connecting...</p>
+
+    <h2>Chart View</h2>
+    <img id="dashboard-plot" src="/analytics/dashboard/view" alt="Analytics chart" style="max-width: 100%; height: auto;" />
+
+    <div id="dashboard-content">
+        {content_html}
+    </div>
+
+    <script>
+        const statusEl = document.getElementById("dashboard-status");
+        const plotEl = document.getElementById("dashboard-plot");
+        const contentEl = document.getElementById("dashboard-content");
+        const wsProtocol = window.location.protocol === "https:" ? "wss" : "ws";
+        const ws = new WebSocket(`${{wsProtocol}}://${{window.location.host}}/analytics/dashboard/ws`);
+
+        ws.onopen = function () {{
+            statusEl.textContent = "Live updates connected";
+        }};
+
+        ws.onmessage = function (event) {{
+            const message = JSON.parse(event.data);
+            contentEl.innerHTML = message.content_html;
+            plotEl.src = `/analytics/dashboard/view?t=${{Date.now()}}`;
+            statusEl.textContent = "Updated";
+        }};
+
+        ws.onclose = function () {{
+            statusEl.textContent = "Connection closed";
+        }};
+
+        ws.onerror = function () {{
+            statusEl.textContent = "Connection error";
+        }};
+    </script>
+ </body>
+</html>
+"""
+
+def _build_dashboard_data(db_pg: Session) -> dict:
+    revenue = revenue_analysis(db_pg)
+    faculty_perf = sorted(
+        faculty_performance_analysis(db_pg),
+        key=lambda item: item.get("performance_score", 0),
+        reverse=True,
+    )
+    student_perf = sorted(
+        student_performance_analysis(db_pg, {}),
+        key=lambda item: item.get("avg_marks", 0),
+        reverse=True,
+    )
+    growth = get_institution_growth(db_pg)
+    return {
+        "revenue": revenue,
+        "faculty_perf": faculty_perf,
+        "student_perf": student_perf,
+        "growth": growth,
+    }
+
+def _dashboard_signature(data: dict) -> str:
+    serializable = {
+        "revenue": data["revenue"],
+        "faculty_perf": data["faculty_perf"][:5],
+        "student_perf": data["student_perf"][:5],
+        "growth": data["growth"],
+    }
+    return hashlib.sha256(json.dumps(serializable, sort_keys=True, default=str).encode("utf-8")).hexdigest()
+
+def _get_ws_user(websocket: WebSocket) -> MYSQL_Permissions | None:
+    token = websocket.cookies.get("access_token")
+    if not token:
+        auth_header = websocket.headers.get("Authorization")
+        if auth_header and auth_header.startswith("Bearer "):
+            token = auth_header.split(" ", 1)[1]
+    if not token:
+        return None
+
+    try:
+        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+    except jwt.PyJWTError:
+        return None
+
+    username = payload.get("sub")
+    if not username:
+        return None
+
+    db = MYSQL_SessionLocal()
+    try:
+        user = db.query(MYSQL_Permissions).filter(MYSQL_Permissions.username == username).first()
+        if not user:
+            return None
+        role_val = getattr(user.role, "value", user.role)
+        if str(role_val).lower() == "admin" or getattr(user, "get_analytics", 0) == 1:
+            return user
+        return None
+    finally:
+        db.close()
+
 
 class RevenueReportSummary(BaseModel):
     month:int
@@ -24,7 +178,56 @@ class RevenueReportSummary(BaseModel):
     total_salary_paid:float
     net_revenue:float
 
-@router.get("/dashboard", response_model=RevenueReportSummary)
+@router.get("/dashboard", response_class=HTMLResponse)
+def view_dashboard_page(
+    db_pg: Session = Depends(get_pg_db),
+    user=Depends(RequirePermission("get_analytics")),
+):
+    data = _build_dashboard_data(db_pg)
+    return HTMLResponse(
+        _render_simple_dashboard_html(
+            data["revenue"],
+            data["faculty_perf"],
+            data["student_perf"],
+            data["growth"],
+        )
+    )
+
+@router.websocket("/dashboard/ws")
+async def dashboard_updates(websocket: WebSocket):
+    user = _get_ws_user(websocket)
+    if not user:
+        await websocket.close(code=status.WS_1008_POLICY_VIOLATION)
+        return
+
+    await websocket.accept()
+    last_signature = None
+
+    try:
+        while True:
+            db_pg = PG_SessionLocal()
+            try:
+                data = _build_dashboard_data(db_pg)
+            finally:
+                db_pg.close()
+
+            current_signature = _dashboard_signature(data)
+            if current_signature != last_signature:
+                await websocket.send_text(json.dumps({
+                    "content_html": _render_dashboard_content(
+                        data["revenue"],
+                        data["faculty_perf"],
+                        data["student_perf"],
+                        data["growth"],
+                    )
+                }))
+                last_signature = current_signature
+
+            await asyncio.sleep(5)
+    except WebSocketDisconnect:
+        return
+
+@router.get("/dashboard/summary", response_model=RevenueReportSummary)
 def get_revenue_analysis(
     db_pg: Session = Depends(get_pg_db),
     user=Depends(RequirePermission("get_analytics")),

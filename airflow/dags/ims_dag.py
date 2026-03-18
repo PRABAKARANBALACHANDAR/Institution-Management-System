@@ -42,6 +42,58 @@ ALERT_SMTP_USERNAME = os.getenv("ALERT_SMTP_USERNAME") or os.getenv("SMTP_USERNA
 ALERT_SMTP_PASSWORD = os.getenv("ALERT_SMTP_PASSWORD") or os.getenv("SMTP_PASSWORD")
 ALERT_SMTP_STARTTLS = (os.getenv("ALERT_SMTP_STARTTLS") or os.getenv("SMTP_STARTTLS") or "true").lower() == "true"
 ALERT_SMTP_SSL = (os.getenv("ALERT_SMTP_SSL") or os.getenv("SMTP_SSL") or "false").lower() == "true"
+
+# Airflow webserver base URL — used to build clickable task log links in alert emails.
+# Resolution order: env var AIRFLOW_WEBSERVER_BASE_URL → airflow.cfg [webserver] base_url → localhost fallback.
+def _get_webserver_base_url() -> str:
+    env_val = os.getenv("AIRFLOW_WEBSERVER_BASE_URL", "").rstrip("/")
+    if env_val:
+        return env_val
+    try:
+        from airflow.configuration import conf
+        return conf.get("webserver", "base_url", fallback="http://localhost:8080").rstrip("/")
+    except Exception:
+        return "http://localhost:8080"
+
+AIRFLOW_WEBSERVER_BASE_URL = _get_webserver_base_url()
+
+def _build_log_url(
+    dag_id: str,
+    task_id: str,
+    run_id: str = "",
+    try_number: object = None,
+    task_instance=None,
+) -> str:
+    """Return a clickable Airflow log URL for a task.
+
+    Prefers the URL already stored on the task_instance object (populated by
+    Airflow's own webserver), but falls back to building one from parts so that
+    inferred / early-callback tasks still get a usable link.
+    """
+    # Use the attribute Airflow sets when a real TI is available.
+    if task_instance is not None:
+        raw = getattr(task_instance, "log_url", None) or ""
+        if raw:
+            return raw
+
+    if not dag_id or not task_id:
+        return ""
+
+    base = AIRFLOW_WEBSERVER_BASE_URL
+    if run_id:
+        # Airflow 2.x grid view — deep-links directly to the log tab.
+        encoded_run_id = run_id.replace("+", "%2B").replace(":", "%3A")
+        url = (
+            f"{base}/dags/{dag_id}/grid"
+            f"?dag_run_id={encoded_run_id}&task_id={task_id}&tab=logs"
+        )
+        if try_number not in (None, "unknown", ""):
+            url += f"&try_number={try_number}"
+        return url
+
+    # Fallback: classic log view (works on all 2.x versions).
+    return f"{base}/log?dag_id={dag_id}&task_id={task_id}"
+
 OPENLINEAGE_NAMESPACE = os.getenv("OPENLINEAGE_NAMESPACE", "ims.airflow")
 OPENLINEAGE_PRODUCER = os.getenv(
     "OPENLINEAGE_PRODUCER",
@@ -170,18 +222,22 @@ def _collect_task_states(dag_run, context_task_instance=None) -> list[str]:
 
 def _collect_failed_task_details(dag_run, context_task_instance=None) -> list[dict]:
     task_instances = _get_task_instances(dag_run, context_task_instance)
+    dag_id = getattr(dag_run, "dag_id", "") or ""
+    run_id = getattr(dag_run, "run_id", "") or ""
     failed_tasks = []
     for task_instance in task_instances:
         state = getattr(task_instance, "state", None)
         if state not in {"failed", "upstream_failed"}:
             continue
 
+        task_id = getattr(task_instance, "task_id", "unknown")
+        try_number = getattr(task_instance, "try_number", "unknown")
         failed_tasks.append(
             {
-                "task_id": getattr(task_instance, "task_id", "unknown"),
+                "task_id": task_id,
                 "state": state,
-                "try_number": getattr(task_instance, "try_number", "unknown"),
-                "log_url": getattr(task_instance, "log_url", ""),
+                "try_number": try_number,
+                "log_url": _build_log_url(dag_id, task_id, run_id, try_number, task_instance),
             }
         )
     return failed_tasks
@@ -200,6 +256,7 @@ def _collect_relevant_failed_task_details(dag, dag_run, context_task_instance=No
         task_map,
         getattr(context_task_instance, "task_id", ""),
         metrics={},
+        dag_run=dag_run,
     )
     lineage_task_ids = {item.get("task_id") for item in lineage if item.get("task_id")}
     relevant_failed_tasks = [item for item in failed_tasks if item.get("task_id") in lineage_task_ids]
@@ -218,7 +275,10 @@ def _infer_failed_task_from_lineage(dag, dag_run, context_task_instance=None, me
             task_map,
             triggered_task_id,
             metrics,
+            dag_run=dag_run,
         )
+
+        candidate = None
         for item in reversed(lineage):
             task_id = item.get("task_id")
             state = item.get("state")
@@ -230,21 +290,32 @@ def _infer_failed_task_from_lineage(dag, dag_run, context_task_instance=None, me
                 continue
             if task_id == triggered_task_id:
                 continue
-            if task_id in PIPELINE_TASK_IDS and not has_metrics:
-                inferred = dict(item)
-                inferred["state"] = state or "inferred_failed"
-                inferred["inferred"] = True
-                return inferred
+            if task_id in PIPELINE_TASK_IDS:
+                if not has_metrics:
+                    candidate = item   # keep walking further upstream
+                else:
+                    break              # hit a successful task; stop here
+
+        if candidate is not None:
+            inferred = dict(candidate)
+            inferred["state"] = inferred.get("state") or "inferred_failed"
+            inferred["inferred"] = True
+            return inferred
 
     if triggered_task_id in PIPELINE_TASK_IDS:
         triggered_index = PIPELINE_TASK_IDS.index(triggered_task_id)
-        for task_id in reversed(PIPELINE_TASK_IDS[:triggered_index]):
+        # Iterate FORWARD so we return the earliest task without metrics.
+        # Reversing would blame the task closest to the trigger (e.g. etl_facts)
+        # even when a farther-upstream task (e.g. etl_dimensions) actually failed.
+        dag_id = dag.dag_id if dag is not None else ""
+        run_id = getattr(dag_run, "run_id", "") or ""
+        for task_id in PIPELINE_TASK_IDS[:triggered_index]:
             if task_id not in metrics:
                 return {
                     "task_id": task_id,
                     "state": "inferred_failed",
                     "try_number": "unknown",
-                    "log_url": "",
+                    "log_url": _build_log_url(dag_id, task_id, run_id),
                     "inferred": True,
                 }
     return None
@@ -275,21 +346,24 @@ def _get_task_instance_lookup(dag_run, context_task_instance=None) -> dict:
         if getattr(task_instance, "task_id", None)
     }
 
-def _task_summary(task_instance, metrics: dict | None = None, upstream_task_ids: list[str] | None = None) -> dict:
+def _task_summary(task_instance, metrics: dict | None = None, upstream_task_ids: list[str] | None = None, dag_run=None) -> dict:
     if task_instance is None:
         return {}
 
     task_id = getattr(task_instance, "task_id", "unknown")
+    dag_id = getattr(task_instance, "dag_id", "") or ""
+    run_id = getattr(dag_run, "run_id", "") if dag_run else (getattr(task_instance, "run_id", "") or "")
+    try_number = getattr(task_instance, "try_number", "unknown")
     return {
         "task_id": task_id,
         "state": getattr(task_instance, "state", "unknown"),
-        "try_number": getattr(task_instance, "try_number", "unknown"),
-        "log_url": getattr(task_instance, "log_url", ""),
+        "try_number": try_number,
+        "log_url": _build_log_url(dag_id, task_id, run_id, try_number, task_instance),
         "upstream_task_ids": upstream_task_ids or [],
         "returned_metrics": (metrics or {}).get(task_id),
     }
 
-def _walk_error_lineage(dag, task_map: dict, task_id: str, metrics: dict, visited: set[str] | None = None) -> list[dict]:
+def _walk_error_lineage(dag, task_map: dict, task_id: str, metrics: dict, visited: set[str] | None = None, dag_run=None) -> list[dict]:
     if not dag or not task_id:
         return []
 
@@ -307,11 +381,11 @@ def _walk_error_lineage(dag, task_map: dict, task_id: str, metrics: dict, visite
     lineage = []
     upstream_ids = sorted(task.upstream_task_ids)
     for upstream_id in upstream_ids:
-        lineage.extend(_walk_error_lineage(dag, task_map, upstream_id, metrics, visited))
+        lineage.extend(_walk_error_lineage(dag, task_map, upstream_id, metrics, visited, dag_run))
 
     task_instance = task_map.get(task_id)
     if task_instance is not None:
-        lineage.append(_task_summary(task_instance, metrics, upstream_ids))
+        lineage.append(_task_summary(task_instance, metrics, upstream_ids, dag_run))
     return lineage
 
 def _select_impacted_task_instance(task_instance, task_map: dict):
@@ -341,6 +415,7 @@ def _build_openlineage_failure_event(context: dict, status_text: str, failure_re
         task_map,
         getattr(impacted_task_instance, "task_id", ""),
         metrics,
+        dag_run=dag_run,
     )
     root_cause = next((item for item in lineage if item.get("state") == "failed"), None)
     if root_cause is None and lineage:
@@ -376,7 +451,7 @@ def _build_openlineage_failure_event(context: dict, status_text: str, failure_re
                     "airflowRunId": run_id,
                     "logicalDate": str(context.get("logical_date")),
                     "failureReason": failure_reason,
-                    "impactedTask": _task_summary(impacted_task_instance, metrics, lineage[-1].get("upstream_task_ids", []) if lineage else []),
+                    "impactedTask": _task_summary(impacted_task_instance, metrics, lineage[-1].get("upstream_task_ids", []) if lineage else [], dag_run),
                     "rootCauseTask": root_cause,
                     "lineage": lineage,
                     "notes": [
@@ -871,7 +946,6 @@ def etl_dimensions(**kwargs):
     pg_db = None
     try:
         mysql_db = MYSQL_SessionLocal()
-        pg_db = PG_SessionLocal()
         synced = load_dimensions_from_snapshot(mysql_db, pg_db, batch_id)
         log_etl(f"[etl_dimensions] Batch {batch_id}: {synced}")
         return {"batch_id": batch_id, "synced": synced}

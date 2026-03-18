@@ -86,26 +86,57 @@ def _render_simple_dashboard_html(revenue: dict, faculty_perf: list[dict], stude
         const plotEl = document.getElementById("dashboard-plot");
         const contentEl = document.getElementById("dashboard-content");
         const wsProtocol = window.location.protocol === "https:" ? "wss" : "ws";
-        const ws = new WebSocket(`${{wsProtocol}}://${{window.location.host}}/analytics/dashboard/ws`);
+        let ws = null;
+        let reconnectTimer = null;
+        let reconnectDelayMs = 2000;
 
-        ws.onopen = function () {{
-            statusEl.textContent = "Live updates connected";
-        }};
+        function scheduleReconnect() {{
+            if (reconnectTimer) {{
+                return;
+            }}
 
-        ws.onmessage = function (event) {{
-            const message = JSON.parse(event.data);
-            contentEl.innerHTML = message.content_html;
-            plotEl.src = `/analytics/dashboard/view?t=${{Date.now()}}`;
-            statusEl.textContent = "Updated";
-        }};
+            statusEl.textContent = "Reconnecting...";
+            reconnectTimer = window.setTimeout(() => {{
+                reconnectTimer = null;
+                connectWebSocket();
+            }}, reconnectDelayMs);
+            reconnectDelayMs = Math.min(reconnectDelayMs * 2, 10000);
+        }}
 
-        ws.onclose = function () {{
-            statusEl.textContent = "Connection closed";
-        }};
+        function connectWebSocket() {{
+            ws = new WebSocket(`${{wsProtocol}}://${{window.location.host}}/analytics/dashboard/ws`);
 
-        ws.onerror = function () {{
-            statusEl.textContent = "Connection error";
-        }};
+            ws.onopen = function () {{
+                reconnectDelayMs = 2000;
+                statusEl.textContent = "Live updates connected";
+            }};
+
+            ws.onmessage = function (event) {{
+                const message = JSON.parse(event.data);
+                if (message.type === "heartbeat") {{
+                    statusEl.textContent = "Live updates connected";
+                    return;
+                }}
+
+                if (message.content_html) {{
+                    contentEl.innerHTML = message.content_html;
+                    plotEl.src = `/analytics/dashboard/view?t=${{Date.now()}}`;
+                    statusEl.textContent = "Updated";
+                }}
+            }};
+
+            ws.onclose = function () {{
+                statusEl.textContent = "Connection closed";
+                scheduleReconnect();
+            }};
+
+            ws.onerror = function () {{
+                statusEl.textContent = "Connection error";
+                ws.close();
+            }};
+        }}
+
+        connectWebSocket();
     </script>
  </body>
 </html>
@@ -214,6 +245,7 @@ async def dashboard_updates(websocket: WebSocket):
             current_signature = _dashboard_signature(data)
             if current_signature != last_signature:
                 await websocket.send_text(json.dumps({
+                    "type": "dashboard_update",
                     "content_html": _render_dashboard_content(
                         data["revenue"],
                         data["faculty_perf"],
@@ -222,6 +254,8 @@ async def dashboard_updates(websocket: WebSocket):
                     )
                 }))
                 last_signature = current_signature
+            else:
+                await websocket.send_text(json.dumps({"type": "heartbeat"}))
 
             await asyncio.sleep(5)
     except WebSocketDisconnect:

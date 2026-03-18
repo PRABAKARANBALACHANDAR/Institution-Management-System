@@ -227,7 +227,7 @@ The pipeline sends **HTML email alerts** for:
 ### 1. Clone the repository
 
 ```bash
-git clone 
+git clone https://github.com/PRABAKARANBALACHANDAR/Institution-Management-System.git
 cd "Institution Management System"
 ```
 
